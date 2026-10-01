@@ -1,5 +1,6 @@
 // ---------------- Player app ----------------
 let conn = null, S = null, me = null, RULES = null, code = null, token = null;
+let removed = false;
 let curQ = null, queuedQ = null, locked = false, wantTeam = null, tab = "q", lastMyHp = null, joinedOnce = false, shopBuilt = false, lastStatus = null;
 
 const V = ["vJoin", "vWait", "vGame", "vEnd"];
@@ -44,9 +45,20 @@ function showNameStep() {
   setTimeout(() => $("#nameIn").focus(), 50);
 }
 function kicked() {
-  store.del(sessKey(code)); token = null; if (conn) conn.close();
-  show("vJoin"); $("#stepCode").classList.remove("hidden"); $("#stepName").classList.add("hidden");
-  $("#joinErr").textContent = "You were removed from the game by your teacher.";
+  // Stay connected: if the teacher lets you back in, the game picks up where you left off.
+  removed = true; $("#targetModal").classList.add("hidden");
+  show("vJoin"); $("#stepCode").classList.add("hidden"); $("#stepName").classList.add("hidden");
+  $("#removedBox").classList.remove("hidden");
+  $("#joinErr").textContent = "";
+}
+function leaveRemoved() {
+  store.del(sessKey(code)); token = null; me = null; removed = false; if (conn) conn.close(); conn = null;
+  $("#removedBox").classList.add("hidden"); $("#stepCode").classList.remove("hidden"); $("#codeIn").value = "";
+  history.replaceState(null, "", `${BASE}/`);
+}
+function unremove() {
+  if (!removed) return;
+  removed = false; $("#removedBox").classList.add("hidden"); toast("Your teacher let you back in!", "good");
 }
 
 // ---------- messages ----------
@@ -58,10 +70,12 @@ function onMsg(m) {
       break;
     case "joined":
       token = m.token; store.set(sessKey(code), token); joinedOnce = true; $("#joinErr").textContent = ""; break;
-    case "me": me = m.me; render(); break;
-    case "state": S = m.state; if (me) render(); else if (!token) showNameStep(); break;
+    case "me": me = m.me; unremove(); render(); break;
+    case "readmitted": unremove(); break;
+    case "state": S = m.state; if (removed) break; if (me) render(); else if (!token) showNameStep(); break;
     case "q":
       if (!m.q) { curQ = null; queuedQ = null; break; }
+      if (removed) break;
       if (locked) queuedQ = m.q; else { curQ = m.q; renderQ(); }
       break;
     case "result": onResult(m); break;
@@ -80,7 +94,7 @@ function onMsg(m) {
 // ---------- render ----------
 function myTeam() { return me && S ? S.teams[me.team] : null; }
 function render() {
-  if (!S || !me) return;
+  if (!S || !me || removed) return;
   const t = myTeam();
   document.body.style.setProperty("--tc", t.color);
   if (S.status === "lobby") { show("vWait"); renderWait(); }
@@ -128,10 +142,12 @@ function flash(color) {
 // ---------- questions ----------
 function renderQ() {
   if (!curQ) return;
+  $("#qimg").innerHTML = imgTag(curQ.img, "qimg");
   $("#qtext").textContent = curQ.text;
+  $("#qtext").classList.toggle("short", !curQ.text);
   $("#fb").textContent = ""; $("#fb").className = "feedback";
   if (curQ.type === "mc") {
-    $("#answerArea").innerHTML = `<div class="opts">${curQ.options.map((o, i) => `<button class="opt" data-i="${i}">${esc(o)}</button>`).join("")}</div>`;
+    $("#answerArea").innerHTML = `<div class="opts">${curQ.options.map((o, i) => `<button class="opt" data-i="${i}">${imgTag(o.img)}${o.t ? `<span>${esc(o.t)}</span>` : ""}</button>`).join("")}</div>`;
   } else {
     $("#answerArea").innerHTML = `<form class="typed" id="typedForm"><input class="input" id="typedIn" autocomplete="off" placeholder="Type your answer"><button class="btn primary">Submit</button></form>`;
     setTimeout(() => $("#typedIn") && $("#typedIn").focus(), 30);
@@ -142,7 +158,7 @@ function answer(val, btn) {
   if (locked || !curQ) return;
   if (S.status !== "running") return toast(S.status === "paused" ? "The game is paused" : "Game not running", "bad");
   locked = true; lastPick = btn || null;
-  conn.send({ t: "answer", qid: curQ.id, answer: val });
+  conn.send(curQ.type === "mc" ? { t: "answer", qid: curQ.id, pick: val } : { t: "answer", qid: curQ.id, answer: val });
   setTimeout(() => { if (locked && !$("#fb").textContent) { locked = false; } }, 4000); // safety unlock
 }
 function onResult(m) {
@@ -152,8 +168,8 @@ function onResult(m) {
     if (lastPick) lastPick.classList.add("right");
   } else {
     fb.className = "feedback bad"; fb.textContent = `Not quite${m.gained < 0 ? ` (${m.gained} ⚡)` : ""}`;
-    document.querySelectorAll(".opt").forEach((b) => { if (b.textContent === m.answer) b.classList.add("right"); else if (b === lastPick) b.classList.add("wrong"); });
-    if (curQ && curQ.type === "text") fb.innerHTML = `Not quite. Answer: <span style="color:var(--ink)">${esc(m.answer)}</span>`;
+    document.querySelectorAll(".opt").forEach((b, i) => { if (i === m.right) b.classList.add("right"); else if (b === lastPick) b.classList.add("wrong"); });
+    if (curQ && curQ.type === "text") fb.innerHTML = `Not quite. Answer: <span style="color:var(--ink)">${esc(m.answer)}</span>${imgTag(m.answerImg, "answer-img")}`;
   }
   setTimeout(() => {
     locked = false;
@@ -239,7 +255,8 @@ $("#nameBtn").onclick = sendJoin;
 $("#nameIn").onkeydown = (e) => { if (e.key === "Enter") sendJoin(); };
 document.addEventListener("click", (e) => {
   const tp = e.target.closest("[data-team]"); if (tp) { wantTeam = +tp.dataset.team; showNameStep(); return; }
-  const o = e.target.closest(".opt"); if (o) { answer(curQ.options[+o.dataset.i], o); return; }
+  const o = e.target.closest(".opt"); if (o) { answer(+o.dataset.i, o); return; }
+  if (e.target.id === "leaveRemoved") { leaveRemoved(); return; }
   const tb = e.target.closest("[data-tab]"); if (tb) {
     tab = tb.dataset.tab; document.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("on", b === tb));
     $("#tabQ").classList.toggle("hidden", tab !== "q"); $("#tabShop").classList.toggle("hidden", tab !== "shop"); return;
@@ -252,7 +269,7 @@ document.addEventListener("click", (e) => {
 document.addEventListener("submit", (e) => { if (e.target.id === "typedForm") { e.preventDefault(); const v = $("#typedIn").value.trim(); if (v) answer(v); } });
 document.addEventListener("keydown", (e) => {
   if (tab !== "q" || !curQ || curQ.type !== "mc" || document.activeElement.tagName === "INPUT") return;
-  const n = parseInt(e.key, 10); if (n >= 1 && n <= curQ.options.length) { const b = document.querySelectorAll(".opt")[n - 1]; answer(curQ.options[n - 1], b); }
+  const n = parseInt(e.key, 10); if (n >= 1 && n <= curQ.options.length) { const b = document.querySelectorAll(".opt")[n - 1]; answer(n - 1, b); }
 });
 
 setInterval(() => {

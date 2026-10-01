@@ -9,37 +9,43 @@ The game also runs inside the physical-science-8 Pages site. See `ADD-TO-YOUR-SI
 
 ---
 
-## Put it online (GitHub → Cloudflare), about 10 minutes
+## Put it online
 
-You only do this once. After that, every change you push to GitHub redeploys the site automatically.
+The game has two parts on Cloudflare (both free):
 
-### 1. Upload to GitHub
-1. Go to https://github.com/new and create a repository named **surge-showdown**. Public or private both work.
-2. On the new repo page, click **"uploading an existing file"**.
-3. Unzip `surge-showdown.zip` on your computer. Drag **everything inside the folder** into the upload box: the `public` and `src` folders, plus `package.json`, `wrangler.jsonc`, `README.md`, and `.gitignore`.
-   > Tip: if `.gitignore` is hidden on your computer, you can skip it.
-4. Click **Commit changes**.
+| Part | What it is | Who opens it |
+|---|---|---|
+| **Pages site** (`*.pages.dev`) | The pages students and teachers open | Everyone |
+| **Worker** (`surge-showdown`) | The live game server (Durable Objects) | Nobody directly. The Pages site talks to it privately inside Cloudflare |
 
-### 2. Connect it to Cloudflare
-1. Log in at https://dash.cloudflare.com and open **Workers & Pages**.
-2. Click **Create** → **Workers** tab → **Import a repository**. This is not the "Pages" tab, because the game needs a Worker for its live multiplayer server.
-3. Connect your GitHub account if asked, then pick **surge-showdown**.
-4. Leave the defaults as they are (deploy command `npx wrangler deploy`) and click **Deploy**.
-5. In a minute or so you'll get a URL like `https://surge-showdown.<your-name>.workers.dev`.
+Because Chromebooks only ever load the `*.pages.dev` address, a web filter that blocks `*.workers.dev` no longer matters.
 
-That's it. Everything runs on Cloudflare's **free plan**. The live game rooms use "Durable Objects", which the free plan includes.
+### 1. Update GitHub
+Upload every file and folder from the zip into the repo (replace the old ones), including the new `pages` folder. Commit. The Worker redeploys on its own; keep it, it is the game server.
 
-> **School network:** if Chromebooks can't open `*.workers.dev`, ask IT to allow it. You can also add a custom domain in Cloudflare: open your Worker → **Settings → Domains & Routes**.
+### 2. Create the Pages project (one time)
+1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** tab → **Import an existing Git repository** → pick **surge-showdown**.
+2. Build settings:
+   - Framework preset: **None**
+   - Build command: `npm run build`
+   - Build output directory: `dist`
+   - **Root directory (advanced): `pages`**
+3. **Save and Deploy**. You get an address like `https://surge-showdown-pages.pages.dev`.
+4. The connection to the game server is set up for you by `pages/wrangler.jsonc` (binding `SERVER` → Worker `surge-showdown`). You can confirm it under the Pages project's **Settings → Bindings**.
+
+Teacher screen: `https://<your-site>.pages.dev/surge/host` · Students: `https://<your-site>.pages.dev`
+
+> **Still blocked?** Ask IT to allow your `*.pages.dev` address (and secure websockets, `wss://`, on it). You can also add a custom domain under the Pages project → **Custom domains**.
 
 ### Making changes later
-Edit a file on GitHub (pencil icon) and commit. Cloudflare redeploys automatically.
+Edit a file on GitHub and commit. Both the Worker and the Pages site redeploy automatically.
 
 ---
 
 ## How to run a game
 
-1. Open `/surge/host`. Pick the game length, number of teams (2–10), theme, and battle settings.
-2. Paste your questions, one per line:
+1. Open `/surge/host`. Every setting is a dropdown: game length, teams, theme, battle, surge and scoring.
+2. Add questions. The easiest way is the **Google Sheets template** (button on the host screen, or `question-template.xlsx`): one row per question, with optional picture links for the question and every answer. Share the sheet as "Anyone with the link → Viewer", paste the link, click **Import**. Or paste lines:
    ```
    Question | Correct answer | Wrong | Wrong | Wrong
    Who proposed continental drift? | Alfred Wegener
@@ -47,9 +53,14 @@ Edit a file on GitHub (pencil icon) and commit. Cloudflare redeploys automatical
    - You can paste straight from **Google Sheets** (columns: question, correct, wrong, wrong, wrong) or import a **Gimkit CSV export**.
    - A line with only a correct answer becomes a **type-the-answer** question. Typed answers aren't case-sensitive.
    - Click **💾 Save set** to keep a set in this browser for next time.
-3. Click **Create game**, project the screen, and students join with the code.
+   - Add a picture to any part with `[img: https://link-to-picture]`. Google Drive links work if the file is shared.
+3. Optional: tick **Demo mode: 40 pretend students** to watch a full game by yourself. Pretend students join, answer (some right, some wrong), shop and attack. Real students can still join. You can turn them on or off from the lobby or during the game.
+4. Click **Create game**, project the screen, and students join with the code.
 4. In the lobby you can move students between teams, shuffle the teams, or remove a student. Then click **Start**.
-5. During the game: **Pause/Resume**, **+1 min / −1 min**, **End game** at any time, plus move or remove players.
+5. During the game: **Pause/Resume**, **+1 min / −1 min**, **End game**, move players, and **add or drop students any time**:
+   - **➕ Add students** shows the join code full screen. New students go to the smallest team still standing, and that team gets extra health.
+   - **New students: Can join / Locked** opens or closes joining mid-game.
+   - **✕** removes a student. Removed students appear in a list with **Let back in**, and their screen picks up where they left off.
 6. At the end, the podium shows the top 3 teams along with awards: MVP, most damage, most correct, longest streak, and top healer. Click **Rematch** to play again with the same students and code.
 
 If your host tab closes or refreshes, just reopen `/surge/host` and it will reconnect to your game. Students who refresh or lose Wi-Fi also rejoin automatically.
@@ -76,7 +87,11 @@ All of these numbers can be changed in the host setup screen.
 
 ## Files
 ```
-src/worker.js        Game server (Cloudflare Worker + Durable Object)
+src/worker.js        Game server (Cloudflare Worker + Durable Object, incl. demo-mode pretend students)
+src/router.js        API routes (create game, websockets, Google Sheets import)
+src/shared.js        Game rules, settings and question checks
+pages/               Cloudflare Pages project (functions/ forwards /surge/api + /surge/ws to the Worker)
+public/surge/question-template.xlsx   Question template with picture columns
 public/surge/index.html    Student page
 public/surge/play.js
 public/surge/host.html     Teacher page
@@ -93,3 +108,4 @@ npm install
 npx wrangler dev
 ```
 Then open http://localhost:8787/surge/host in one window and http://localhost:8787/surge/ in others.
+To test the Pages version too, keep that running and in a second terminal run `cd pages && npm run build && npx wrangler pages dev`.

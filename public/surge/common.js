@@ -36,33 +36,119 @@ const THEMES = {
 };
 const themeTeams = (key) => (THEMES[key] || THEMES.elements).teams.map(([name, icon, color]) => ({ name, icon, color }));
 
-// ---- question parsing: tab (pasted from Sheets), pipe, or CSV (Gimkit export) ----
-function parseCSVLine(line) {
-  const out = []; let cur = "", q = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (q) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
-    else if (c === '"') q = true; else if (c === ",") { out.push(cur); cur = ""; } else cur += c;
+// ---- question parsing ----
+// Accepts: rows pasted from Google Sheets (tabs), "a | b | c" lines, CSV files (Gimkit export or our template),
+// with an optional header row. Pictures: an image column from the template, a cell that is just an image link,
+// or "[img: link]" inside any part.
+// A question is { q, img, correct, cImg, wrong: [...], wImg: [...] }
+function parseCSV(text) {
+  const rows = []; let row = [], cur = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"' && text[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') q = false;
+      else cur += c;
+    } else if (c === '"' && cur === "") q = true;
+    else if (c === ",") { row.push(cur); cur = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(cur); rows.push(row); row = []; cur = "";
+    } else cur += c;
   }
-  out.push(cur); return out;
+  if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+  return rows;
 }
-function parseQuestions(text) {
-  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+function textToRows(text) {
+  text = String(text || "");
+  if (text.includes("\t")) return text.split(/\r?\n/).map((l) => l.split("\t"));
+  const lines = text.split(/\r?\n/);
+  if (lines.some((l) => l.includes("|"))) return lines.map((l) => (l.includes("|") ? l.split("|") : parseCSV(l)[0] || []));
+  return parseCSV(text);
+}
+const IMG_TAG = /\[img:\s*([^\]\s]+)\s*\]/i;
+const isUrl = (s) => /^https?:\/\/\S+$/i.test(s);
+function splitImg(cell) {
+  let t = String(cell ?? "").trim(), img = "", bare = false;
+  const m = t.match(IMG_TAG);
+  if (m) { img = m[1]; t = t.replace(IMG_TAG, "").trim(); }
+  else if (isUrl(t) && (/\.(png|jpe?g|gif|webp|svg|bmp)(\?|#|$)/i.test(t) || /drive\.google\.com|googleusercontent\.com|imgur\.com|wikimedia\.org|unsplash\.com/i.test(t))) { img = t; t = ""; bare = true; }
+  return { t, img: fixImg(img), bare };
+}
+// Google Drive share links → direct picture links
+function fixImg(u) {
+  u = String(u || "").trim();
+  const m = u.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=\w+&)?id=)([\w-]{20,})/i);
+  return m ? `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000` : u;
+}
+function headerRoles(row) {
+  // returns an array of roles if this row is a header row, else null
+  const cells = row.map((c) => String(c || "").trim().toLowerCase());
+  if (!cells.some((c) => /^question/.test(c))) return null;
+  let w = -1;
+  return cells.map((c) => {
+    const pic = /image|picture|img|photo|pic\b/.test(c);
+    if (/^question/.test(c)) return pic ? ["qImg"] : ["q"];
+    if (/correct|right answer/.test(c) && !/incorrect/.test(c)) return pic ? ["cImg"] : ["correct"];
+    if (/wrong|incorrect|distractor|option|answer/.test(c)) {
+      if (pic) return ["wImg", Math.max(0, w)];
+      w++; return ["wrong", w];
+    }
+    return null;
+  });
+}
+function parseQuestions(text) { return rowsToQuestions(textToRows(text)); }
+function rowsToQuestions(rows) {
   const out = [];
-  for (const line of lines) {
-    let cells;
-    if (line.includes("\t")) cells = line.split("\t");
-    else if (line.includes("|")) cells = line.split("|");
-    else cells = parseCSVLine(line);
-    cells = cells.map((c) => c.trim());
-    const [q, correct, ...wrong] = cells;
-    if (!q || !correct) continue;
-    if (/^question$/i.test(q) || /gimkit/i.test(q)) continue;
-    out.push({ q, correct, wrong: wrong.filter(Boolean) });
+  let roles = null;
+  for (const raw of rows) {
+    const row = raw.map((c) => String(c ?? "").trim());
+    if (!row.some(Boolean)) continue;
+    const hr = headerRoles(row);
+    if (hr) { roles = hr; continue; }
+    if (/gimkit/i.test(row[0]) || /^(example|instructions?)\b/i.test(row[0])) continue;
+    const q = { q: "", img: "", correct: "", cImg: "", wrong: [], wImg: [] };
+    if (roles) {
+      row.forEach((cell, i) => {
+        const r = roles[i]; if (!r || !cell) return;
+        const f = splitImg(cell);
+        const [k, n] = r;
+        if (k === "q") { q.q = f.t; if (f.img) q.img = f.img; }
+        else if (k === "qImg") q.img = fixImg(cell);
+        else if (k === "correct") { q.correct = f.t; if (f.img) q.cImg = f.img; }
+        else if (k === "cImg") q.cImg = fixImg(cell);
+        else if (k === "wrong") { q.wrong[n] = f.t; if (f.img) q.wImg[n] = f.img; }
+        else if (k === "wImg") q.wImg[n] = fixImg(cell);
+      });
+      const W = [], WI = [];
+      for (let i = 0; i < Math.max(q.wrong.length, q.wImg.length); i++) if (q.wrong[i] || q.wImg[i]) { W.push(q.wrong[i] || ""); WI.push(q.wImg[i] || ""); }
+      q.wrong = W; q.wImg = WI;
+    } else {
+      const fields = [];
+      for (const cell of row) {
+        if (!cell) continue;
+        const f = splitImg(cell);
+        if (f.bare && fields.length && !fields[fields.length - 1].img) fields[fields.length - 1].img = f.img;
+        else fields.push(f);
+      }
+      const [fq, fc, ...fw] = fields;
+      if (!fq || !fc) continue;
+      Object.assign(q, { q: fq.t, img: fq.img, correct: fc.t, cImg: fc.img, wrong: fw.map((x) => x.t), wImg: fw.map((x) => x.img) });
+    }
+    if (/^question$/i.test(q.q)) continue;
+    if (!q.q && !q.img) continue;
+    if (!q.correct && !q.cImg) continue;
+    if (!q.wrong.length && !q.correct) continue;
+    q.wrong = q.wrong.slice(0, 5); q.wImg = q.wImg.slice(0, 5);
+    out.push(q);
   }
   return out;
 }
-function questionsToText(qs) { return qs.map((q) => [q.q, q.correct, ...(q.wrong || [])].join(" | ")).join("\n"); }
+const fieldText = (t, img) => [t || "", img ? `[img: ${img}]` : ""].filter(Boolean).join(" ");
+function questionsToText(qs) {
+  return qs.map((q) => [fieldText(q.q, q.img), fieldText(q.correct, q.cImg), ...(q.wrong || []).map((w, i) => fieldText(w, (q.wImg || [])[i]))].join(" | ")).join("\n");
+}
+const imgTag = (src, cls = "") => src ? `<img class="${cls}" src="${esc(src)}" alt="" referrerpolicy="no-referrer" loading="eager" onerror="this.style.display='none'">` : "";
 
 // ---- websocket with auto-reconnect ----
 function connect(path, { onOpen, onMessage, onStatus }) {

@@ -1,0 +1,11 @@
+// Cloudflare Pages project for Surge Showdown (Root directory: pages).
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "surge-showdown-pages",
+  "pages_build_output_dir": "dist",
+  "compatibility_date": "2025-09-01",
+  // The game server (Durable Object) lives in the "surge-showdown" Worker.
+  // Pages talks to it privately through this binding, so the *.workers.dev
+  // address never has to load on student devices.
+  "services": [{ "binding": "SERVER", "service": "surge-showdown" }]
+}

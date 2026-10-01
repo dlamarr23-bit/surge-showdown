@@ -1,154 +1,20 @@
 // Surge Showdown — Cloudflare Worker + Durable Object game server
 import { DurableObject } from "cloudflare:workers";
+import { RULES, DEMO_COUNT, cleanName, rid, shuffle, clamp, norm, json, sanitizeSettings, sanitizeQuestions, questionsForHost } from "./shared.js";
+import { route } from "./router.js";
 
-// ---------- Game rules (sent to clients so there is one source of truth) ----------
-const RULES = {
-  upgrades: {
-    gain: {
-      name: "Energy per Question",
-      desc: "Earn more energy for every correct answer.",
-      levels: [10, 20, 35, 60, 100, 160],
-      costs: [0, 60, 180, 450, 1100, 2600],
-    },
-    streak: {
-      name: "Streak Bonus",
-      desc: "Bonus energy for each answer in a row you get right (up to 10).",
-      levels: [0, 2, 5, 9, 15],
-      costs: [0, 80, 240, 600, 1400],
-    },
-  },
-  powers: {
-    strike:  { name: "Strike",  icon: "⚔️", cost: 40,  base: 30, target: "enemy", desc: "Hit one team." },
-    siphon:  { name: "Siphon",  icon: "🌀", cost: 90,  base: 25, target: "enemy", desc: "Hit one team and heal yours by the same amount." },
-    barrage: { name: "Barrage", icon: "☄️", cost: 150, base: 18, target: "all",   desc: "Hit every other team still standing." },
-    mend:    { name: "Mend",    icon: "💚", cost: 60,  base: 45, target: "self",  desc: "Heal your team." },
-    shield:  { name: "Shield",  icon: "🛡️", cost: 70,  base: 50, target: "self",  desc: "Add a shield that absorbs damage." },
-  },
-};
+const BOT_NAMES = ["Ava M.", "Liam R.", "Mia T.", "Noah G.", "Sofia L.", "Ethan P.", "Isabella C.", "Mason K.", "Zoe H.", "Lucas B.",
+  "Chloe W.", "Elijah D.", "Aria S.", "James F.", "Layla N.", "Daniel V.", "Nora J.", "Mateo A.", "Lily E.", "Henry O.",
+  "Camila Q.", "Jack Y.", "Hazel Z.", "Leo U.", "Ellie I.", "Owen X.", "Stella R.", "Gabriel M.", "Ruby T.", "Julian G.",
+  "Violet L.", "Wyatt P.", "Aurora C.", "Ezra K.", "Penelope H.", "Kai B.", "Naomi W.", "Diego D.", "Maya S.", "Isaac F."];
 
-const DEFAULT_SETTINGS = {
-  title: "Surge Showdown",
-  theme: "elements",
-  teamCount: 4,
-  teams: [["Fire","🔥","#ef4444"],["Water","💧","#3b82f6"],["Earth","🪨","#b7791f"],["Air","🌪️","#e2e8f0"],["Lightning","⚡","#facc15"],["Ice","❄️","#67e8f9"],["Nature","🌿","#22c55e"],["Metal","⚙️","#f97316"],["Light","✨","#f472b6"],["Shadow","🌑","#8b5cf6"]].map(([name, icon, color]) => ({ name, icon, color })),
-  durationMin: 10,
-  hpAmount: 300,
-  hpMode: "perPlayer", // perPlayer | flat
-  surgeMax: 5,
-  surgeCurve: 4, // steepness of the exponential curve
-  powerScale: 1,
-  energyScale: 1,
-  fallenCanAttack: true,
-  lastTeamEnds: false,
-  teamPick: "auto", // auto | choose
-  lateJoin: true,
-  wrongPenalty: 5,
-  ptsCorrect: 10,
-  ptsDamage: 1,
-  survivalBonus: 300,
-  koBonus: 200,
-  feedNames: true,
-};
-
-const BAD = ["fuck","shit","bitch","ass","dick","cock","pussy","nigg","fag","cunt","slut","whore","penis","vagina","sex","porn","rape","nazi","hitler","kkk","damn","hell"];
-const cleanName = (s) => {
-  let n = String(s || "").replace(/[\u0000-\u001f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 18);
-  const flat = n.toLowerCase().replace(/[^a-z]/g, "");
-  if (!n || BAD.some((b) => flat.includes(b))) return "";
-  return n;
-};
-const rid = (n = 16) => {
-  const a = new Uint8Array(n); crypto.getRandomValues(a);
-  return Array.from(a, (b) => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
-};
-const shuffle = (arr) => {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
-  return a;
-};
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-const num = (v, d, lo, hi) => { const x = Number(v); return Number.isFinite(x) ? clamp(x, lo, hi) : d; };
-const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9.\-/ ]/g, "").replace(/\s+/g, " ").trim();
-const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
-
-function sanitizeSettings(input, prev = DEFAULT_SETTINGS) {
-  const s = { ...prev };
-  const i = input || {};
-  s.title = String(i.title ?? s.title).slice(0, 40) || "Surge Showdown";
-  s.theme = String(i.theme ?? s.theme).slice(0, 20);
-  s.teamCount = Math.round(num(i.teamCount, s.teamCount, 2, 10));
-  if (Array.isArray(i.teams) && i.teams.length) {
-    s.teams = i.teams.slice(0, 10).map((t, k) => ({
-      name: String(t?.name || `Team ${k + 1}`).replace(/[<>]/g, "").slice(0, 20),
-      icon: String(t?.icon || "⭐").slice(0, 4),
-      color: /^#[0-9a-f]{6}$/i.test(t?.color) ? t.color : "#888888",
-    }));
-  }
-  while (s.teams.length < 10) s.teams.push({ name: `Team ${s.teams.length + 1}`, icon: "⭐", color: "#888888" });
-  s.durationMin = num(i.durationMin, s.durationMin, 1, 90);
-  s.hpAmount = Math.round(num(i.hpAmount, s.hpAmount, 50, 100000));
-  s.hpMode = i.hpMode === "flat" ? "flat" : i.hpMode === "perPlayer" ? "perPlayer" : s.hpMode;
-  s.surgeMax = num(i.surgeMax, s.surgeMax, 1, 20);
-  s.surgeCurve = num(i.surgeCurve, s.surgeCurve, 0.5, 10);
-  s.powerScale = num(i.powerScale, s.powerScale, 0.25, 5);
-  s.energyScale = num(i.energyScale, s.energyScale, 0.25, 5);
-  for (const k of ["fallenCanAttack", "lastTeamEnds", "lateJoin", "feedNames"]) if (typeof i[k] === "boolean") s[k] = i[k];
-  s.teamPick = i.teamPick === "choose" ? "choose" : i.teamPick === "auto" ? "auto" : s.teamPick;
-  s.wrongPenalty = Math.round(num(i.wrongPenalty, s.wrongPenalty, 0, 1000));
-  s.ptsCorrect = Math.round(num(i.ptsCorrect, s.ptsCorrect, 0, 1000));
-  s.ptsDamage = num(i.ptsDamage, s.ptsDamage, 0, 100);
-  s.survivalBonus = Math.round(num(i.survivalBonus, s.survivalBonus, 0, 100000));
-  s.koBonus = Math.round(num(i.koBonus, s.koBonus, 0, 100000));
-  return s;
-}
-
-function sanitizeQuestions(list) {
-  if (!Array.isArray(list)) return [];
-  const out = [];
-  for (const q of list.slice(0, 500)) {
-    const text = String(q?.q || "").slice(0, 400).trim();
-    const correct = String(q?.correct || "").slice(0, 200).trim();
-    const wrong = (Array.isArray(q?.wrong) ? q.wrong : []).map((w) => String(w).slice(0, 200).trim()).filter(Boolean).slice(0, 5);
-    if (!text || !correct) continue;
-    out.push({ q: text, correct, wrong, type: wrong.length ? "mc" : "text" });
-  }
-  return out;
-}
-
-// ---------- Worker entry ----------
+// ---------- Worker entry (used when deployed as a Worker; Pages uses functions/) ----------
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/" || url.pathname === "/surge") return Response.redirect(url.origin + "/surge/", 302);
-    const path = url.pathname.replace(/^\/surge(?=\/(api|ws)\/)/, "");
-    if (path === "/api/create" && request.method === "POST") {
-      let body = {};
-      try { body = await request.json(); } catch {}
-      const questions = sanitizeQuestions(body.questions);
-      if (questions.length < 1) return json({ error: "Add at least one question." }, 400);
-      for (let tries = 0; tries < 8; tries++) {
-        const code = String(Math.floor(100000 + Math.random() * 900000));
-        const stub = env.GAME.get(env.GAME.idFromName(code));
-        const r = await stub.fetch("https://do/init", {
-          method: "POST",
-          body: JSON.stringify({ code, settings: body.settings, questions }),
-        });
-        if (r.status === 200) return json(await r.json());
-      }
-      return json({ error: "Could not create a game. Try again." }, 500);
-    }
-    const m = path.match(/^\/ws\/(\d{6})$/);
-    if (m) {
-      if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected websocket", { status: 426 });
-      const stub = env.GAME.get(env.GAME.idFromName(m[1]));
-      return stub.fetch(request);
-    }
-    if (path === "/api/rules") return json(RULES);
-    const c = path.match(/^\/api\/exists\/(\d{6})$/);
-    if (c) {
-      const stub = env.GAME.get(env.GAME.idFromName(c[1]));
-      return stub.fetch("https://do/exists");
-    }
+    const r = await route(request, env);
+    if (r) return r;
     return env.ASSETS.fetch(request);
   },
 };
@@ -160,6 +26,7 @@ export class GameRoom extends DurableObject {
     this.s = null;
     this.saveTimer = null;
     this.bcastTimer = null;
+    this.botTimer = null;
     ctx.blockConcurrencyWhile(async () => {
       this.s = (await ctx.storage.get("s")) || null;
     });
@@ -181,6 +48,7 @@ export class GameRoom extends DurableObject {
     try { ws.send(JSON.stringify(msg)); } catch {}
   }
   sendToPlayer(pid, msg) {
+    if (this.s?.players[pid]?.bot) return;
     for (const ws of this.sockets("p:" + pid)) this.send(ws, msg);
   }
   broadcast() {
@@ -188,13 +56,14 @@ export class GameRoom extends DurableObject {
     if (this.bcastTimer) return;
     this.bcastTimer = setTimeout(() => {
       this.bcastTimer = null;
+      if (!this.s) return;
       const pub = JSON.stringify({ t: "state", state: this.publicState(false) });
       const host = JSON.stringify({ t: "state", state: this.publicState(true) });
       for (const ws of this.ctx.getWebSockets()) {
         const tags = this.ctx.getTags(ws);
         try { ws.send(tags.includes("host") ? host : pub); } catch {}
       }
-    }, 150);
+    }, 200);
   }
 
   // ----- timing -----
@@ -214,17 +83,23 @@ export class GameRoom extends DurableObject {
   }
   async scheduleAlarm() {
     const s = this.s;
-    if (s.status === "running") await this.ctx.storage.setAlarm(Date.now() + this.remainingMs() + 50);
-    else await this.ctx.storage.setAlarm(Date.now() + 12 * 3600 * 1000); // cleanup
+    if (s.status === "running") {
+      let at = Date.now() + this.remainingMs() + 50;
+      if (s.settings.demo) at = Math.min(at, Date.now() + 15000); // keeps pretend students moving
+      await this.ctx.storage.setAlarm(at);
+    } else await this.ctx.storage.setAlarm(Date.now() + 12 * 3600 * 1000); // cleanup
   }
   async alarm() {
     if (!this.s) return;
     if (this.s.status === "running") {
-      if (this.remainingMs() <= 0) { this.endGame("time"); await this.saveNow(); await this.scheduleAlarm(); }
-      else await this.scheduleAlarm();
+      if (this.remainingMs() <= 0) { this.endGame("time"); await this.saveNow(); }
+      this.ensureBotTimer();
+      await this.scheduleAlarm();
       return;
     }
+    if (Date.now() - (this.s.touchedAt || this.s.createdAt) < 11 * 3600 * 1000) { await this.scheduleAlarm(); return; }
     // cleanup old game
+    this.stopBotTimer();
     for (const ws of this.ctx.getWebSockets()) { try { ws.close(1000, "Game expired"); } catch {} }
     this.s = null;
     await this.ctx.storage.deleteAll();
@@ -247,13 +122,16 @@ export class GameRoom extends DurableObject {
         teams: [],
         players: {},
         feed: [],
+        botsToAdd: 0,
         totalMs: 0, elapsedBase: 0, runStartedAt: null,
         endReason: null, results: null,
-        createdAt: Date.now(),
+        createdAt: Date.now(), touchedAt: Date.now(),
       };
       this.buildTeams();
+      if (this.s.settings.demo) this.s.botsToAdd = DEMO_COUNT;
       await this.saveNow();
       await this.scheduleAlarm();
+      this.ensureBotTimer();
       return json({ code: this.s.code, hostKey: this.s.hostKey });
     }
     // websocket
@@ -265,12 +143,13 @@ export class GameRoom extends DurableObject {
       if (url.searchParams.get("key") !== this.s.hostKey) return new Response("Bad host key", { status: 403 });
       this.ctx.acceptWebSocket(server, ["host"]);
       server.serializeAttachment({ role: "host" });
-      this.send(server, { t: "hello", role: "host", rules: RULES, state: this.publicState(true), questions: this.s.questions });
+      this.send(server, { t: "hello", role: "host", rules: RULES, state: this.publicState(true), questions: questionsForHost(this.s.questions) });
     } else {
       this.ctx.acceptWebSocket(server, ["anon"]);
       server.serializeAttachment({ role: "anon" });
       this.send(server, { t: "hello", role: "anon", rules: RULES, state: this.publicState(false) });
     }
+    this.ensureBotTimer();
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -287,9 +166,11 @@ export class GameRoom extends DurableObject {
     if (!this.s) return;
     let m; try { m = JSON.parse(raw); } catch { return; }
     const a = ws.deserializeAttachment() || {};
+    this.ensureBotTimer();
     if (m.t === "ping") return this.send(ws, { t: "pong", now: Date.now() });
+    this.s.touchedAt = Date.now();
     if (a.role === "host") return this.onHost(ws, m);
-    if (a.role === "anon" && m.t === "join") return this.onJoin(ws, m);
+    if ((a.role === "anon" || a.role === "player") && m.t === "join") return this.onJoin(ws, m);
     if (a.role === "player") return this.onPlayer(ws, a.pid, m);
   }
 
@@ -305,7 +186,7 @@ export class GameRoom extends DurableObject {
   }
   teamSize(id) { return Object.values(this.s.players).filter((p) => p.team === id && !p.kicked).length; }
   smallestTeam(onlyAlive = false) {
-    let best = 0, bestN = Infinity;
+    let best = -1, bestN = Infinity;
     const order = shuffle(this.s.teams.map((t) => t.id));
     for (const id of order) {
       const t = this.s.teams[id];
@@ -313,6 +194,7 @@ export class GameRoom extends DurableObject {
       const n = this.teamSize(id);
       if (n < bestN) { best = id; bestN = n; }
     }
+    if (best < 0) return onlyAlive ? this.smallestTeam(false) : 0;
     return best;
   }
   teamScore(t) {
@@ -320,12 +202,23 @@ export class GameRoom extends DurableObject {
     for (const p of Object.values(this.s.players)) if (p.team === t.id && !p.kicked) sc += p.points;
     return Math.round(sc);
   }
+  // Put a player on a team in the middle of a game (late join / re-admit)
+  placeLive(p, team) {
+    const s = this.s, t = s.teams[team];
+    if (s.status === "lobby" || s.status === "ended") return;
+    if (!t.active) { // waking up an empty team
+      t.active = true; t.alive = true; t.shield = 0; t.fellAt = null;
+      t.maxHp = s.settings.hpAmount; t.hp = t.maxHp;
+      return;
+    }
+    this.recalcPerPlayerHp(team, +1);
+  }
 
   // ----- public state -----
   publicState(isHost) {
     const s = this.s, now = Date.now();
     const players = Object.values(s.players).filter((p) => !p.kicked).map((p) => ({
-      id: p.id, name: p.name, team: p.team, online: p.online,
+      id: p.id, name: p.name, team: p.team, online: p.online, bot: !!p.bot,
       points: Math.round(p.points), correct: p.correct, dmg: Math.round(p.dmg),
       ...(isHost ? { wrong: p.wrong, energy: Math.floor(p.energy) } : {}),
     }));
@@ -333,6 +226,7 @@ export class GameRoom extends DurableObject {
       code: s.code, status: s.status, settings: { ...s.settings }, qCount: s.questions.length,
       teams: s.teams.map((t) => ({ ...t, hp: Math.round(t.hp), shield: Math.round(t.shield), score: this.teamScore(t), size: this.teamSize(t.id) })),
       players, feed: s.feed.slice(-25),
+      ...(isHost ? { removed: Object.values(s.players).filter((p) => p.kicked && !p.bot).map((p) => ({ id: p.id, name: p.name, team: p.team })) } : {}),
       totalMs: s.totalMs, elapsedBase: s.elapsedBase, runStartedAt: s.runStartedAt, serverNow: now,
       surge: this.surge(now), endReason: s.endReason, results: s.results,
     };
@@ -342,17 +236,28 @@ export class GameRoom extends DurableObject {
   async onHost(ws, m) {
     const s = this.s;
     switch (m.t) {
-      case "settings":
+      case "settings": {
         if (s.status !== "lobby") return;
+        const wasDemo = s.settings.demo;
         s.settings = sanitizeSettings(m.settings, s.settings);
         this.buildTeams();
+        if (s.settings.demo !== wasDemo) this.setDemo(s.settings.demo);
         break;
+      }
       case "questions": {
         const q = sanitizeQuestions(m.questions);
         if (q.length) { s.questions = q; for (const p of Object.values(s.players)) { p.order = []; } }
-        this.send(ws, { t: "questions", questions: s.questions });
+        this.send(ws, { t: "questions", questions: questionsForHost(s.questions) });
         break;
       }
+      case "lateJoin":
+        s.settings.lateJoin = !!m.on;
+        if (s.status !== "lobby") this.feed(m.on ? "🚪 Joining is open — new players can jump in" : "🔒 Joining is locked", "sys");
+        break;
+      case "demo":
+        if (s.status === "ended") return;
+        this.setDemo(!!m.on);
+        break;
       case "start": {
         if (s.status !== "lobby") return;
         const counts = s.teams.map((t) => this.teamSize(t.id));
@@ -365,7 +270,7 @@ export class GameRoom extends DurableObject {
         s.totalMs = Math.round(s.settings.durationMin * 60000);
         s.elapsedBase = 0; s.runStartedAt = Date.now(); s.status = "running";
         s.feed = []; this.feed("🚀 The battle has begun!", "sys");
-        for (const p of Object.values(s.players)) this.nextQuestion(p);
+        for (const p of Object.values(s.players)) if (!p.kicked) { this.nextQuestion(p); if (p.bot) p.nextAct = Date.now() + 1500 + Math.random() * 5000; }
         await this.scheduleAlarm();
         break;
       }
@@ -395,11 +300,23 @@ export class GameRoom extends DurableObject {
         await this.scheduleAlarm();
         break;
       case "kick": {
-        const p = s.players[m.pid]; if (!p) return;
-        p.kicked = true;
-        this.sendToPlayer(p.id, { t: "kicked" });
-        for (const w of this.sockets("p:" + p.id)) { try { w.close(4000, "Removed by teacher"); } catch {} }
-        this.recalcPerPlayerHp(p.team, -1);
+        const p = s.players[m.pid]; if (!p || p.kicked) return;
+        this.removePlayer(p);
+        if (s.status !== "lobby" && s.status !== "ended") this.feed(`👋 ${p.name} left the game`, "sys");
+        break;
+      }
+      case "readmit": {
+        const p = s.players[m.pid]; if (!p || !p.kicked) return;
+        p.kicked = false;
+        if (s.status === "running" || s.status === "paused") {
+          const t = s.teams[p.team];
+          if (!t || !t.active || !t.alive) p.team = this.smallestTeam(true);
+          this.placeLive(p, p.team);
+          this.feed(`🚪 ${p.name} is back in the game`, "sys");
+        } else if (!s.teams[p.team]) p.team = this.smallestTeam();
+        this.sendToPlayer(p.id, { t: "readmitted" });
+        this.sendMe(p);
+        if (s.status === "running" || s.status === "paused") this.nextQuestion(p);
         break;
       }
       case "shuffle": {
@@ -429,11 +346,34 @@ export class GameRoom extends DurableObject {
         }
         this.buildTeams();
         await this.scheduleAlarm();
+        this.ensureBotTimer();
         break;
       }
       default: return;
     }
     this.broadcast();
+  }
+
+  removePlayer(p) {
+    const s = this.s;
+    p.kicked = true;
+    this.sendToPlayer(p.id, { t: "kicked" });
+    this.recalcPerPlayerHp(p.team, -1);
+    if (p.bot && (s.status === "lobby" || s.status === "ended")) delete s.players[p.id];
+  }
+
+  setDemo(on) {
+    const s = this.s;
+    s.settings.demo = on;
+    if (on) {
+      const have = Object.values(s.players).filter((p) => p.bot && !p.kicked).length;
+      s.botsToAdd = Math.max(0, DEMO_COUNT - have);
+      this.ensureBotTimer();
+    } else {
+      s.botsToAdd = 0;
+      for (const p of Object.values(s.players)) if (p.bot && !p.kicked) this.removePlayer(p);
+      if (s.status === "running" || s.status === "paused") this.feed("🎭 Pretend students left the game", "sys");
+    }
   }
 
   recalcPerPlayerHp(teamId, delta) {
@@ -444,32 +384,41 @@ export class GameRoom extends DurableObject {
   }
 
   freshStats() {
-    return { energy: 0, points: 0, correct: 0, wrong: 0, streak: 0, best: 0, dmg: 0, heal: 0, upg: { gain: 0, streak: 0 }, order: [], cur: null, lastAns: 0, lastPow: 0 };
+    return { energy: 0, points: 0, correct: 0, wrong: 0, streak: 0, best: 0, dmg: 0, heal: 0, upg: { gain: 0, streak: 0 }, order: [], cur: null, opts: null, lastAns: 0, lastPow: 0 };
   }
 
   // ----- players -----
+  newPlayer(name, team, extra = {}) {
+    const s = this.s;
+    const taken = new Set(Object.values(s.players).map((x) => x.name.toLowerCase()));
+    let base = name, k = 2; while (taken.has(name.toLowerCase())) name = `${base.slice(0, 15)} ${k++}`;
+    const p = { id: rid(8), token: rid(20), name, team, online: true, kicked: false, joinedAt: Date.now(), ...this.freshStats(), ...extra };
+    s.players[p.id] = p;
+    if (s.status === "running" || s.status === "paused") this.placeLive(p, team);
+    return p;
+  }
+
   onJoin(ws, m) {
     const s = this.s;
     let p = m.token ? Object.values(s.players).find((x) => x.token === m.token) : null;
-    if (p?.kicked) { this.send(ws, { t: "kicked" }); return; }
+    if (p?.kicked) {
+      // stay connected so the teacher can let them back in
+      ws.serializeAttachment({ role: "player", pid: p.id });
+      this.send(ws, { t: "kicked" });
+      return;
+    }
     if (!p) {
       if (s.status === "ended") return this.send(ws, { t: "error", msg: "This game has ended." });
-      if (s.status !== "lobby" && !s.settings.lateJoin) return this.send(ws, { t: "error", msg: "This game has already started." });
-      if (Object.keys(s.players).length >= 200) return this.send(ws, { t: "error", msg: "This game is full." });
-      let name = cleanName(m.name);
+      if (s.status !== "lobby" && !s.settings.lateJoin) return this.send(ws, { t: "error", msg: "Joining is locked right now. Ask your teacher to open it." });
+      if (Object.keys(s.players).length >= 250) return this.send(ws, { t: "error", msg: "This game is full." });
+      const name = cleanName(m.name);
       if (!name) return this.send(ws, { t: "error", msg: "Please choose a different name." });
-      const taken = new Set(Object.values(s.players).map((x) => x.name.toLowerCase()));
-      let base = name, k = 2; while (taken.has(name.toLowerCase())) name = `${base.slice(0, 15)} ${k++}`;
       let team;
       const want = Number(m.team);
       if (s.status === "lobby") team = s.settings.teamPick === "choose" && s.teams[want] ? want : this.smallestTeam();
       else team = s.settings.teamPick === "choose" && s.teams[want]?.active && s.teams[want]?.alive ? want : this.smallestTeam(true);
-      p = { id: rid(8), token: rid(20), name, team, online: true, kicked: false, joinedAt: Date.now(), ...this.freshStats() };
-      s.players[p.id] = p;
-      if (s.status !== "lobby") {
-        this.recalcPerPlayerHp(team, +1);
-        if (!s.teams[team].active) { s.teams[team].active = true; }
-      }
+      p = this.newPlayer(name, team);
+      if (s.status !== "lobby") this.feed(`🚪 ${p.name} joined ${s.teams[team].icon} ${s.teams[team].name}`, "sys");
     }
     p.online = true;
     ws.serializeAttachment({ role: "player", pid: p.id });
@@ -492,10 +441,10 @@ export class GameRoom extends DurableObject {
   }
 
   meMsg(p) {
-    const s = this.s;
     return { t: "me", me: { id: p.id, name: p.name, team: p.team, energy: Math.floor(p.energy), points: Math.round(p.points), correct: p.correct, wrong: p.wrong, streak: p.streak, best: p.best, dmg: Math.round(p.dmg), heal: Math.round(p.heal), upg: p.upg } };
   }
   sendMe(p, ws) {
+    if (p.bot) return;
     const msg = this.meMsg(p);
     if (ws) this.send(ws, msg); else this.sendToPlayer(p.id, msg);
   }
@@ -513,33 +462,94 @@ export class GameRoom extends DurableObject {
   sendQuestion(p, ws) {
     const q = this.s.questions[p.cur];
     if (!q) return;
-    const msg = { t: "q", q: { id: p.cur, text: q.q, type: q.type, options: q.type === "mc" ? shuffle([q.correct, ...q.wrong]) : null } };
+    p.opts = q.type === "mc" ? shuffle(q.ans.map((_, i) => i)) : null;
+    if (p.bot) return;
+    const msg = { t: "q", q: { id: p.cur, text: q.q, img: q.img || "", type: q.type, options: p.opts ? p.opts.map((i) => ({ t: q.ans[i].t, img: q.ans[i].img || "" })) : null } };
     if (ws) this.send(ws, msg); else this.sendToPlayer(p.id, msg);
+  }
+
+  // shared by real players and pretend students
+  applyAnswer(p, ok) {
+    const s = this.s;
+    let gained;
+    if (ok) {
+      p.streak++; p.best = Math.max(p.best, p.streak); p.correct++;
+      const U = RULES.upgrades;
+      gained = Math.round((U.gain.levels[p.upg.gain] + U.streak.levels[p.upg.streak] * Math.min(p.streak - 1, 10)) * s.settings.energyScale);
+      p.energy += gained; p.points += s.settings.ptsCorrect;
+    } else {
+      p.streak = 0; p.wrong++;
+      gained = -Math.min(Math.floor(p.energy), s.settings.wrongPenalty);
+      p.energy += gained;
+    }
+    return gained;
+  }
+  doUpgrade(p, key) {
+    const U = RULES.upgrades[key]; if (!U) return "Unknown upgrade.";
+    const lvl = p.upg[key];
+    if (lvl >= U.levels.length - 1) return "Already maxed.";
+    const cost = U.costs[lvl + 1];
+    if (p.energy < cost) return "Not enough energy.";
+    p.energy -= cost; p.upg[key] = lvl + 1;
+    return null;
+  }
+  doPower(p, key, target, now = Date.now()) {
+    const s = this.s;
+    const P = RULES.powers[key]; if (!P) return "Unknown power-up.";
+    const mine = s.teams[p.team];
+    if (p.energy < P.cost) return "Not enough energy.";
+    if (!mine.alive && P.target === "self") return "Your team has fallen — you can't heal or shield, but you can still attack!";
+    if (!mine.alive && !s.settings.fallenCanAttack) return "Your team has fallen.";
+    const amt = P.base * s.settings.powerScale * this.surge(now);
+    const tag = s.settings.feedNames ? `${p.name} (${mine.icon} ${mine.name})` : `${mine.icon} ${mine.name}`;
+    let msg = "";
+    if (P.target === "enemy") {
+      const t = s.teams[Number(target)];
+      if (!t || t.id === mine.id || !t.alive || !t.active) return "Pick a team that is still standing.";
+      p.energy -= P.cost; p.lastPow = now;
+      const dealt = this.damage(t, amt, p);
+      if (key === "siphon" && mine.alive) { const h = this.heal(mine, dealt); p.heal += h; }
+      msg = `${P.icon} ${tag} used ${P.name} on ${t.icon} ${t.name} for ${Math.round(dealt)}`;
+    } else if (P.target === "all") {
+      const targets = s.teams.filter((t) => t.alive && t.active && t.id !== mine.id);
+      if (!targets.length) return "No teams left to hit.";
+      p.energy -= P.cost; p.lastPow = now;
+      for (const t of targets) this.damage(t, amt, p, true);
+      msg = `${P.icon} ${tag} launched a Barrage hitting ${targets.length} teams for ${Math.round(amt)} each`;
+    } else {
+      p.energy -= P.cost; p.lastPow = now;
+      if (key === "mend") { const h = this.heal(mine, amt); p.heal += h; msg = `${P.icon} ${tag} healed their team for ${Math.round(h)}`; }
+      if (key === "shield") { const cap = mine.maxHp * 0.5; const before = mine.shield; mine.shield = Math.min(cap, mine.shield + amt); msg = `${P.icon} ${tag} raised a shield (+${Math.round(mine.shield - before)})`; }
+    }
+    this.feed(msg, key);
+    this.flushKOs();
+    this.checkLastTeam();
+    return null;
   }
 
   onPlayer(ws, pid, m) {
     const s = this.s, p = s.players[pid];
     if (!p || p.kicked) return;
     const now = Date.now();
+    if (m.t === "leave") {
+      this.removePlayer(p);
+      if (s.status !== "lobby" && s.status !== "ended") this.feed(`👋 ${p.name} left the game`, "sys");
+      this.broadcast();
+      return;
+    }
     if (m.t === "answer") {
       if (s.status !== "running") return this.send(ws, { t: "error", msg: s.status === "paused" ? "Game is paused." : "Game is not running." });
       if (now - p.lastAns < 350 || Number(m.qid) !== p.cur) return;
       p.lastAns = now;
       const q = s.questions[p.cur];
-      const ok = q.type === "mc" ? String(m.answer) === q.correct : norm(m.answer) === norm(q.correct) && norm(m.answer) !== "";
-      let gained = 0;
-      if (ok) {
-        p.streak++; p.best = Math.max(p.best, p.streak); p.correct++;
-        const U = RULES.upgrades;
-        gained = (U.gain.levels[p.upg.gain] + U.streak.levels[p.upg.streak] * Math.min(p.streak - 1, 10)) * s.settings.energyScale;
-        gained = Math.round(gained);
-        p.energy += gained; p.points += s.settings.ptsCorrect;
-      } else {
-        p.streak = 0; p.wrong++;
-        gained = -Math.min(Math.floor(p.energy), s.settings.wrongPenalty);
-        p.energy += gained;
-      }
-      this.send(ws, { t: "result", correct: ok, gained, answer: q.correct, streak: p.streak });
+      let ok, right = -1;
+      if (q.type === "mc") {
+        const pick = Number(m.pick);
+        right = (p.opts || []).indexOf(0);
+        ok = Number.isInteger(pick) && p.opts && p.opts[pick] === 0;
+      } else ok = norm(m.answer) === norm(q.ans[0].t) && norm(m.answer) !== "";
+      const gained = this.applyAnswer(p, ok);
+      this.send(ws, { t: "result", correct: ok, gained, answer: q.ans[0].t, answerImg: q.ans[0].img || "", right, streak: p.streak });
       this.sendMe(p);
       this.nextQuestion(p);
       this.broadcast();
@@ -547,13 +557,9 @@ export class GameRoom extends DurableObject {
     }
     if (m.t === "upgrade") {
       if (s.status !== "running") return this.send(ws, { t: "error", msg: "You can shop once the game is running." });
-      const U = RULES.upgrades[m.key]; if (!U) return;
-      const lvl = p.upg[m.key];
-      if (lvl >= U.levels.length - 1) return;
-      const cost = U.costs[lvl + 1];
-      if (p.energy < cost) return this.send(ws, { t: "error", msg: "Not enough energy." });
-      p.energy -= cost; p.upg[m.key] = lvl + 1;
-      this.send(ws, { t: "toast", msg: `${U.name} upgraded to level ${lvl + 2}!` });
+      const err = this.doUpgrade(p, m.key);
+      if (err) return this.send(ws, { t: "error", msg: err });
+      this.send(ws, { t: "toast", msg: `${RULES.upgrades[m.key].name} upgraded to level ${p.upg[m.key] + 1}!` });
       this.sendMe(p);
       this.broadcast();
       return;
@@ -561,42 +567,80 @@ export class GameRoom extends DurableObject {
     if (m.t === "power") {
       if (s.status !== "running") return this.send(ws, { t: "error", msg: s.status === "paused" ? "Game is paused." : "Game is not running." });
       if (now - p.lastPow < 300) return;
-      const P = RULES.powers[m.key]; if (!P) return;
-      const mine = s.teams[p.team];
-      if (p.energy < P.cost) return this.send(ws, { t: "error", msg: "Not enough energy." });
-      if (!mine.alive && P.target === "self") return this.send(ws, { t: "error", msg: "Your team has fallen — you can't heal or shield, but you can still attack!" });
-      if (!mine.alive && !s.settings.fallenCanAttack) return this.send(ws, { t: "error", msg: "Your team has fallen." });
-      const amt = P.base * s.settings.powerScale * this.surge(now);
-      const tag = s.settings.feedNames ? `${p.name} (${mine.icon} ${mine.name})` : `${mine.icon} ${mine.name}`;
-      let msg = "";
-      if (P.target === "enemy") {
-        const t = s.teams[Number(m.target)];
-        if (!t || t.id === mine.id || !t.alive || !t.active) return this.send(ws, { t: "error", msg: "Pick a team that is still standing." });
-        p.energy -= P.cost; p.lastPow = now;
-        const dealt = this.damage(t, amt, p);
-        if (m.key === "siphon" && mine.alive) { const h = this.heal(mine, dealt); p.heal += h; }
-        msg = `${P.icon} ${tag} used ${P.name} on ${t.icon} ${t.name} for ${Math.round(dealt)}`;
-      } else if (P.target === "all") {
-        const targets = s.teams.filter((t) => t.alive && t.active && t.id !== mine.id);
-        if (!targets.length) return this.send(ws, { t: "error", msg: "No teams left to hit." });
-        p.energy -= P.cost; p.lastPow = now;
-        let total = 0; for (const t of targets) total += this.damage(t, amt, p, true);
-        msg = `${P.icon} ${tag} launched a Barrage hitting ${targets.length} teams for ${Math.round(amt)} each`;
-      } else {
-        p.energy -= P.cost; p.lastPow = now;
-        if (m.key === "mend") { const h = this.heal(mine, amt); p.heal += h; msg = `${P.icon} ${tag} healed their team for ${Math.round(h)}`; }
-        if (m.key === "shield") { const cap = mine.maxHp * 0.5; const before = mine.shield; mine.shield = Math.min(cap, mine.shield + amt); msg = `${P.icon} ${tag} raised a shield (+${Math.round(mine.shield - before)})`; }
-      }
-      this.feed(msg, m.key);
-      this.flushKOs();
+      const err = this.doPower(p, m.key, m.target, now);
+      if (err) return this.send(ws, { t: "error", msg: err });
       this.sendMe(p);
-      this.checkLastTeam();
       this.broadcast();
       return;
     }
   }
 
-  damage(t, amt, attacker, quietKO) {
+  // ----- demo mode: pretend students -----
+  ensureBotTimer() {
+    const s = this.s;
+    const need = s && s.status !== "ended" && (s.botsToAdd > 0 || (s.settings.demo && Object.values(s.players).some((p) => p.bot && !p.kicked)));
+    if (need && !this.botTimer) this.botTimer = setInterval(() => this.botTick(), 1000);
+    else if (!need) this.stopBotTimer();
+  }
+  stopBotTimer() { if (this.botTimer) { clearInterval(this.botTimer); this.botTimer = null; } }
+
+  botTick() {
+    const s = this.s;
+    if (!s || s.status === "ended") return this.stopBotTimer();
+    let changed = false;
+    // trickle in a few pretend students each second so the lobby fills up like a real class
+    if (s.botsToAdd > 0) {
+      const n = Math.min(s.botsToAdd, 2 + Math.floor(Math.random() * 3));
+      for (let i = 0; i < n; i++) {
+        const used = new Set(Object.values(s.players).map((p) => p.name));
+        const name = BOT_NAMES.find((x) => !used.has(x)) || `Student ${Object.keys(s.players).length + 1}`;
+        const team = s.status === "lobby" ? (s.settings.teamPick === "choose" ? Math.floor(Math.random() * s.teams.length) : this.smallestTeam()) : this.smallestTeam(true);
+        const p = this.newPlayer(name, team, { bot: true, skill: 0.55 + Math.random() * 0.35, speed: 0.7 + Math.random() * 0.9, nextAct: Date.now() + 2000 + Math.random() * 4000 });
+        if (s.status === "running" || s.status === "paused") this.nextQuestion(p);
+      }
+      s.botsToAdd -= n; changed = true;
+    }
+    if (s.status === "running") {
+      const now = Date.now();
+      for (const p of Object.values(s.players)) {
+        if (!p.bot || p.kicked || now < (p.nextAct || 0)) continue;
+        if (p.cur == null) this.nextQuestion(p);
+        const ok = Math.random() < p.skill;
+        this.applyAnswer(p, ok);
+        this.nextQuestion(p);
+        p.nextAct = now + (3000 + Math.random() * 6000) * p.speed + (ok ? 0 : 1500);
+        if (Math.random() < 0.6) this.botSpend(p, now);
+        changed = true;
+        if (s.status !== "running") break;
+      }
+    }
+    if (changed) this.broadcast();
+    if (!s.botsToAdd && !s.settings.demo) this.stopBotTimer();
+  }
+
+  botSpend(p, now) {
+    const s = this.s, mine = s.teams[p.team], U = RULES.upgrades, P = RULES.powers;
+    // early on, invest in upgrades now and then
+    if (p.upg.gain < 3 && p.energy >= U.gain.costs[p.upg.gain + 1] && Math.random() < 0.55) return this.doUpgrade(p, "gain");
+    if (p.upg.streak < 2 && p.energy >= U.streak.costs[p.upg.streak + 1] && Math.random() < 0.25) return this.doUpgrade(p, "streak");
+    const enemies = s.teams.filter((t) => t.active && t.alive && t.id !== p.team);
+    const choices = [];
+    if (enemies.length) { choices.push(["strike", 5], ["siphon", 2]); if (enemies.length > 1) choices.push(["barrage", 1]); }
+    if (mine.alive && mine.hp < mine.maxHp * 0.7) choices.push(["mend", 4]);
+    if (mine.alive && mine.shield < mine.maxHp * 0.15) choices.push(["shield", 1]);
+    const ok = choices.filter(([k]) => p.energy >= P[k].cost);
+    if (!ok.length) return;
+    let r = Math.random() * ok.reduce((a, [, w]) => a + w, 0), key = ok[0][0];
+    for (const [k, w] of ok) { if ((r -= w) <= 0) { key = k; break; } }
+    let target = null;
+    if (P[key].target === "enemy") {
+      const leader = enemies.slice().sort((a, b) => this.teamScore(b) - this.teamScore(a))[0];
+      target = (Math.random() < 0.4 ? leader : enemies[Math.floor(Math.random() * enemies.length)]).id;
+    }
+    this.doPower(p, key, target, now);
+  }
+
+  damage(t, amt, attacker) {
     const s = this.s;
     let left = amt;
     const absorbed = Math.min(t.shield, left); t.shield -= absorbed; left -= absorbed;
@@ -659,6 +703,7 @@ export class GameRoom extends DurableObject {
     const msg = { time: "⏰ Time's up!", host: "🏁 The teacher ended the game.", allFallen: "💀 Every team has fallen!", lastTeam: "👑 Only one team remains!" }[reason] || "Game over";
     this.feed(msg, "sys");
     for (const p of ps) this.sendMe(p);
+    this.stopBotTimer();
     this.broadcast();
   }
 }

@@ -26,9 +26,15 @@
       </div>
       <button class="btn primary big" style="width:100%" id="nameBtn">Let's go! ⚡</button>
     </div>
+    <div id="removedBox" class="hidden removed-box">
+      <div style="font-size:44px">✋</div>
+      <div class="display" style="font-size:26px">Your teacher removed you from the game</div>
+      <p class="muted">If that was a mistake, ask your teacher to let you back in. Keep this page open and you'll jump right back in.</p>
+      <button class="btn ghost" id="leaveRemoved">Join a different game</button>
+    </div>
     <div id="joinErr" class="feedback bad" style="font-size:18px"></div>
   </div>
-  <p style="margin-top:28px"><a href="/surge/host.html" class="muted">Teacher? Host a game →</a></p>
+  <p style="margin-top:28px"><a href="/surge/host" class="muted">Teacher? Host a game →</a></p>
 </section>
 
 <!-- WAIT -->
@@ -54,6 +60,7 @@
   <div id="tabQ">
     <div class="qcard">
       <div class="muted" style="font-weight:600"><span id="streakTxt"></span></div>
+      <div id="qimg"></div>
       <div class="qtext" id="qtext">Loading…</div>
       <div id="answerArea"></div>
       <div class="feedback" id="fb"></div>

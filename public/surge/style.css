@@ -265,3 +265,41 @@ table.ptable { width: 100%; border-collapse: collapse; font-size: 14px; }
   .grid2, .team-edit { grid-template-columns: 1fr; }
   .p-head .energy { font-size: 22px; }
 }
+
+/* ---------- setting rows (label + description on the left, dropdown on the right) ---------- */
+.srow { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.sect [data-group] > .srow:last-child { border-bottom: 0; }
+.stxt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stxt b { font-size: 16px; }
+.stxt span { font-size: 13.5px; color: var(--muted); line-height: 1.35; }
+.srow select { width: auto; min-width: 92px; max-width: 290px; flex: none; padding: 8px 34px 8px 12px; font-weight: 600; cursor: pointer;
+  appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239aa3d1' stroke-width='2' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; }
+.team-details { margin-top: 10px; }
+.team-details summary { cursor: pointer; color: var(--muted); font-weight: 600; padding: 6px 0; }
+.team-details .team-edit { margin-top: 8px; }
+.demo-card { display: flex; gap: 16px; align-items: flex-start; padding: 16px 18px; border-radius: var(--radius); background: #3a3000; border: 1px solid #a37f00; cursor: pointer; }
+.demo-card input { width: 26px; height: 26px; flex: none; margin: 2px 0 0; accent-color: var(--accent); cursor: pointer; }
+.demo-card b { display: block; font-size: 17px; margin-bottom: 4px; }
+.demo-card span { color: #e9dca6; font-size: 14.5px; line-height: 1.45; }
+.sheet-box { background: var(--bg2); border: 2px dashed #2f8f5b; border-radius: 12px; padding: 12px; }
+.qpreview .qi img { max-height: 44px; max-width: 70px; border-radius: 6px; vertical-align: middle; margin: 2px 4px; background: #fff; }
+
+/* ---------- live join / add + drop ---------- */
+.live-join .live-code { font-family: "Lilita One"; font-size: 40px; letter-spacing: 4px; color: var(--accent); line-height: 1.1; }
+.live-join select, #lobby select#x { width: auto; }
+.jm-url { font-size: clamp(26px, 4vw, 44px); font-weight: 700; }
+.jm-code { font-family: "Lilita One"; font-size: clamp(80px, 15vw, 170px); letter-spacing: 10px; color: var(--accent); line-height: 1; }
+.removed { margin-top: 10px; font-size: 14px; }
+.removed .lbl { margin-bottom: 4px; }
+.removed .rm { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid #ffffff10; }
+.removed .rm span { flex: 1; color: var(--muted); }
+.bot-tag { font-size: 11px; opacity: .7; margin-left: 4px; }
+
+/* ---------- pictures in questions/answers ---------- */
+.qimg { display: block; max-width: 100%; max-height: 34vh; margin: 0 auto 10px; border-radius: 12px; background: #fff; object-fit: contain; }
+.opt { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.opt img { max-width: 100%; max-height: 22vh; border-radius: 10px; background: #fff; object-fit: contain; pointer-events: none; }
+.answer-img { max-height: 120px; border-radius: 8px; display: block; margin: 8px auto 0; background: #fff; }
+.removed-box { text-align: center; }
+.qtext.short { min-height: 0; }

@@ -3,8 +3,10 @@ const DEFAULTS = {
   title: "Surge Showdown", theme: "elements", teamCount: 4, teams: themeTeams("elements"),
   durationMin: 10, hpAmount: 300, hpMode: "perPlayer", surgeMax: 5, surgeCurve: 4,
   powerScale: 1, energyScale: 1, fallenCanAttack: true, lastTeamEnds: false, teamPick: "auto",
-  lateJoin: true, wrongPenalty: 5, ptsCorrect: 10, ptsDamage: 1, survivalBonus: 300, koBonus: 200, feedNames: true,
+  lateJoin: true, wrongPenalty: 5, ptsCorrect: 10, ptsDamage: 1, survivalBonus: 300, koBonus: 200, feedNames: true, demo: false,
 };
+// The Google Sheets question template ("Make a copy" link)
+const SHEET_TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1id9tjF6A5Ua9x3r4QxDGTu7DRMpviwWUOj8LGmud1eU/copy";
 let cfg = { ...DEFAULTS, ...store.get("ss_settings", {}) };
 if (!Array.isArray(cfg.teams) || cfg.teams.length < 10) cfg.teams = themeTeams(cfg.theme);
 let questions = store.get("ss_lastQuestions", []);
@@ -17,31 +19,75 @@ function show(v) {
   $("#liveControls").classList.toggle("hidden", v !== "live");
 }
 
-// ---------- SETUP FORM ----------
-const nums = ["durationMin", "teamCount", "hpAmount", "wrongPenalty", "powerScale", "energyScale", "surgeMax", "ptsCorrect", "ptsDamage", "survivalBonus", "koBonus"];
-const bools = ["fallenCanAttack", "lastTeamEnds", "lateJoin", "feedNames"];
-const segs = ["teamPick", "hpMode", "surgeCurve"];
+// ---------- SETUP FORM (every setting is a dropdown row) ----------
+const yesNo = [[true, "Yes"], [false, "No"]];
+const range = (arr, fmt) => arr.map((v) => [v, fmt(v)]);
+const times = (v) => "×" + v;
+const SETTINGS = [
+  { g: "game", k: "durationMin", label: "Game length", desc: "How long the battle lasts. You can add or remove time during the game.", opts: range([3, 5, 8, 10, 12, 15, 20, 25, 30, 45], (v) => `${v} min`) },
+  { g: "teams", k: "teamCount", label: "Number of teams", desc: "Teams with no players sit out.", opts: range([2, 3, 4, 5, 6, 7, 8, 9, 10], String) },
+  { g: "teams", k: "theme", label: "Team theme", desc: "Names, icons and colors for the teams.", opts: null },
+  { g: "teams", k: "teamPick", label: "How students join a team", desc: "Auto-balance keeps teams even.", opts: [["auto", "Auto-balance"], ["choose", "Students choose"]] },
+  { g: "teams", k: "lateJoin", label: "Join after the game starts", desc: "New students can jump in mid-game. You can also open or lock joining during the game.", opts: yesNo },
+  { g: "battle", k: "hpAmount", label: "Team health", desc: "Starting health. Teams fall when it reaches zero.", opts: range([100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000], String) },
+  { g: "battle", k: "hpMode", label: "Health is counted", desc: "Per player gives bigger teams more health.", opts: [["perPlayer", "Per player"], ["flat", "Per team"]] },
+  { g: "battle", k: "wrongPenalty", label: "Energy lost on a wrong answer", desc: "Keeps students from guessing.", opts: range([0, 2, 5, 10, 15, 20, 25, 50], String) },
+  { g: "battle", k: "powerScale", label: "Power-up strength", desc: "Bigger means faster, more dramatic battles.", opts: range([0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3], times) },
+  { g: "battle", k: "energyScale", label: "Energy earned per answer", desc: "How fast students can afford power-ups.", opts: range([0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3], times) },
+  { g: "battle", k: "fallenCanAttack", label: "Fallen teams can still attack", desc: "Knocked-out teams keep answering and attacking.", opts: yesNo },
+  { g: "battle", k: "lastTeamEnds", label: "End when one team is left", desc: "Otherwise the game runs until time is up.", opts: yesNo },
+  { g: "battle", k: "feedNames", label: "Show names in the battle feed", desc: "No shows team names only.", opts: yesNo },
+  { g: "surge", k: "surgeMax", label: "Max surge at the end", desc: "Power-up multiplier at the final second.", opts: range([1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 15], times) },
+  { g: "surge", k: "surgeCurve", label: "Surge curve", desc: "Steeper curves save the big jump for the last minutes.", opts: [[2, "Gentle"], [4, "Steep"], [7, "Extreme"]] },
+  { g: "scoring", k: "ptsCorrect", label: "Points per correct answer", desc: "", opts: range([0, 5, 10, 15, 20, 25, 50, 100], String) },
+  { g: "scoring", k: "ptsDamage", label: "Points per 1 damage dealt", desc: "", opts: range([0, 0.25, 0.5, 1, 2, 3, 5], String) },
+  { g: "scoring", k: "survivalBonus", label: "Survival bonus", desc: "For each team still standing at the end.", opts: range([0, 100, 200, 300, 500, 750, 1000, 2000], String) },
+  { g: "scoring", k: "koBonus", label: "Knockout bonus", desc: "For the team that lands the final blow.", opts: range([0, 100, 200, 300, 500, 750, 1000, 2000], String) },
+];
+const SPEC = Object.fromEntries(SETTINGS.map((x) => [x.k, x]));
+
+function optionsFor(spec) {
+  if (spec.k === "theme") return [...Object.entries(THEMES).map(([k, t]) => [k, t.label]), ["custom", "Custom"]];
+  let opts = spec.opts.slice();
+  const cur = cfg[spec.k];
+  if (!opts.some(([v]) => String(v) === String(cur))) { // keep a saved value that isn't in the list
+    opts.push([cur, typeof cur === "number" ? (spec.opts[0][1].startsWith("×") ? times(cur) : spec.k === "durationMin" ? `${cur} min` : String(cur)) : String(cur)]);
+    if (typeof cur === "number") opts.sort((a, b) => a[0] - b[0]);
+  }
+  return opts;
+}
+function readVal(k, raw) {
+  const d = DEFAULTS[k];
+  if (typeof d === "boolean") return raw === "true";
+  if (typeof d === "number") return Number(raw);
+  return raw;
+}
 
 function initSetup() {
-  $("#theme").innerHTML = Object.entries(THEMES).map(([k, t]) => `<option value="${k}">${t.label}</option>`).join("") + `<option value="custom">Custom</option>`;
-  $("#durPresets").innerHTML = [5, 8, 10, 15, 20].map((m) => `<button class="btn sm ghost" data-m="${m}">${m} min</button>`).join("");
-  $("#durPresets").onclick = (e) => { const m = e.target.dataset.m; if (m) { cfg.durationMin = +m; paintSetup(); } };
+  for (const box of document.querySelectorAll("[data-group]")) {
+    box.innerHTML = SETTINGS.filter((x) => x.g === box.dataset.group).map((x) => `
+      <div class="srow"><div class="stxt"><b>${x.label}</b>${x.desc ? `<span>${x.desc}</span>` : ""}</div>
+      <select data-k="${x.k}" aria-label="${x.label}"></select></div>`).join("");
+  }
+  document.querySelectorAll("select[data-k]").forEach((sel) => sel.addEventListener("change", () => {
+    const k = sel.dataset.k;
+    if (k === "theme") { if (sel.value !== "custom") { cfg.theme = sel.value; cfg.teams = themeTeams(cfg.theme); } }
+    else cfg[k] = readVal(k, sel.value);
+    paintSetup();
+  }));
+  $("#demo").addEventListener("change", (e) => { cfg.demo = e.target.checked; persist(); });
   $("#title").oninput = (e) => { cfg.title = e.target.value; persist(); };
-  for (const k of nums) $("#" + k).addEventListener("input", (e) => { cfg[k] = Number(e.target.value); paintSetup(false); });
-  for (const k of bools) $("#" + k).addEventListener("change", (e) => { cfg[k] = e.target.checked; persist(); });
-  for (const k of segs) $("#" + k).addEventListener("click", (e) => {
-    const v = e.target.dataset.v; if (v == null) return;
-    cfg[k] = k === "surgeCurve" ? Number(v) : v; paintSetup();
-  });
-  $("#theme").onchange = (e) => { if (e.target.value !== "custom") { cfg.theme = e.target.value; cfg.teams = themeTeams(cfg.theme); } paintSetup(); };
   $("#qtext").addEventListener("input", () => { questions = parseQuestions($("#qtext").value); paintQuestions(); });
-  $("#sampleBtn").onclick = () => { $("#qtext").value = questionsToText(SAMPLE_QUESTIONS); questions = SAMPLE_QUESTIONS.slice(); $("#setName").value = "8th Grade Science Sample"; paintQuestions(); };
+  $("#sampleBtn").onclick = () => { questions = SAMPLE_QUESTIONS.slice(); $("#qtext").value = questionsToText(questions); $("#setName").value = "8th Grade Science Sample"; paintQuestions(); };
   $("#fileBtn").onclick = () => $("#fileIn").click();
   $("#fileIn").onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    const txt = await f.text(); $("#qtext").value = questionsToText(parseQuestions(txt));
-    questions = parseQuestions(txt); $("#setName").value = f.name.replace(/\.\w+$/, ""); paintQuestions(); e.target.value = "";
+    const txt = await f.text(); questions = parseQuestions(txt); $("#qtext").value = questionsToText(questions);
+    $("#setName").value = f.name.replace(/\.\w+$/, ""); paintQuestions(); e.target.value = "";
   };
+  $("#templateLink").href = SHEET_TEMPLATE_URL;
+  $("#sheetBtn").onclick = importSheet;
+  $("#sheetUrl").onkeydown = (e) => { if (e.key === "Enter") importSheet(); };
   $("#saveSet").onclick = () => {
     const name = $("#setName").value.trim(); if (!name) return toast("Give the set a name first", "bad");
     if (!questions.length) return toast("No questions to save", "bad");
@@ -60,18 +106,30 @@ function initSetup() {
   $("#qtext").value = questionsToText(questions);
   paintSets(); paintSetup(); paintQuestions();
 }
+async function importSheet() {
+  const link = $("#sheetUrl").value.trim();
+  if (!/docs\.google\.com\/spreadsheets\/d\//.test(link)) return toast("Paste a Google Sheets link first", "bad");
+  $("#sheetBtn").disabled = true; $("#sheetBtn").textContent = "Importing…";
+  try {
+    const r = await fetch(`${BASE}/api/sheet?url=${encodeURIComponent(link)}`);
+    if (!r.ok) { let msg = "Couldn't open that sheet."; try { msg = (await r.json()).error || msg; } catch {} throw new Error(msg); }
+    const qs = rowsToQuestions(parseCSV(await r.text()));
+    if (!qs.length) throw new Error("No questions found. Check that the first tab has the template's header row.");
+    questions = qs; $("#qtext").value = questionsToText(qs); paintQuestions();
+    if (!$("#setName").value) $("#setName").value = "Google Sheet set";
+    toast(`Imported ${qs.length} question${qs.length === 1 ? "" : "s"}`, "good");
+  } catch (e) { toast(e.message, "bad"); }
+  $("#sheetBtn").disabled = false; $("#sheetBtn").textContent = "Import";
+}
 function persist() { store.set("ss_settings", cfg); }
-function paintSetup(full = true) {
+function paintSetup() {
   $("#title").value = cfg.title;
-  for (const k of nums) { const el = $("#" + k); if (document.activeElement !== el || full) el.value = cfg[k]; }
-  for (const k of bools) $("#" + k).checked = !!cfg[k];
-  for (const k of segs) $("#" + k).querySelectorAll("button").forEach((b) => b.classList.toggle("on", String(cfg[k]) === b.dataset.v));
-  $("#durationMinV").textContent = cfg.durationMin + " min";
-  $("#teamCountV").textContent = cfg.teamCount;
-  $("#powerScaleV").textContent = "×" + cfg.powerScale;
-  $("#energyScaleV").textContent = "×" + cfg.energyScale;
-  $("#surgeMaxV").textContent = "×" + cfg.surgeMax;
-  $("#theme").value = THEMES[cfg.theme] ? cfg.theme : "custom";
+  document.querySelectorAll("select[data-k]").forEach((sel) => {
+    const spec = SPEC[sel.dataset.k];
+    sel.innerHTML = optionsFor(spec).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("");
+    sel.value = spec.k === "theme" ? (THEMES[cfg.theme] ? cfg.theme : "custom") : String(cfg[spec.k]);
+  });
+  $("#demo").checked = !!cfg.demo;
   // team editor
   const te = $("#teamEdit");
   te.innerHTML = cfg.teams.map((t, i) => `
@@ -82,7 +140,7 @@ function paintSetup(full = true) {
     </div>`).join("");
   te.oninput = (e) => {
     const i = +e.target.closest(".te").dataset.i, f = e.target.dataset.f;
-    cfg.teams[i] = { ...cfg.teams[i], [f]: e.target.value }; cfg.theme = "custom"; $("#theme").value = "custom"; persist();
+    cfg.teams[i] = { ...cfg.teams[i], [f]: e.target.value }; cfg.theme = "custom"; $('select[data-k="theme"]').value = "custom"; persist();
   };
   drawCurve();
   paintPowerInfo();
@@ -113,7 +171,8 @@ function paintPowerInfo() {
 function paintQuestions() {
   store.set("ss_lastQuestions", questions);
   $("#qcount").textContent = `${questions.length} question${questions.length === 1 ? "" : "s"} ready` + (questions.length && questions.length < 10 ? " (10+ recommended so students don't see repeats too often)" : "");
-  $("#qpreview").innerHTML = questions.slice(0, 200).map((q, i) => `<div class="qi">${i + 1}. ${esc(q.q)}<br><b>✓ ${esc(q.correct)}</b> ${q.wrong.length ? `<span class="w">✗ ${q.wrong.map(esc).join(" · ")}</span>` : `<span class="w">(type the answer)</span>`}</div>`).join("") || `<div class="qi muted">Paste questions above or load the sample set.</div>`;
+  const part = (t, img) => `${imgTag(img)}${esc(t)}`;
+  $("#qpreview").innerHTML = questions.slice(0, 200).map((q, i) => `<div class="qi">${i + 1}. ${part(q.q, q.img)}<br><b>✓ ${part(q.correct, q.cImg)}</b> ${q.wrong.length ? `<span class="w">✗ ${q.wrong.map((w, k) => part(w, (q.wImg || [])[k])).join(" · ")}</span>` : `<span class="w">(type the answer)</span>`}</div>`).join("") || `<div class="qi muted">Paste questions above, import a Google Sheet, or load the sample set.</div>`;
 }
 function paintSets(sel) {
   const sets = store.get("ss_sets", {}); const names = Object.keys(sets);
@@ -177,6 +236,8 @@ function render() {
   $("#brandTitle").textContent = S.settings.title;
   $("#pausedBanner").classList.toggle("hidden", S.status !== "paused");
   const url = location.host + BASE;
+  paintJoinBits(url);
+  if (S.status === "ended") $("#joinModal").classList.add("hidden");
   if (S.status === "lobby") { show("lobby"); renderLobby(url); }
   else if (S.status === "running" || S.status === "paused") { show("live"); renderLive(url); }
   else if (S.status === "ended") { show("results"); renderResults(lastStatus !== "ended"); }
@@ -190,16 +251,31 @@ function renderLobby(url) {
   $("#joinCode").textContent = S.code;
   $("#playerCount").textContent = S.players.length;
   $("#startBtn").disabled = S.players.length === 0;
+  $("#demoBtnLobby").textContent = S.settings.demo ? "🎭 Remove pretend students" : "🎭 Add 40 pretend students";
+  $("#removedLobby").innerHTML = removedHTML();
   if (pickingMove()) return;
   $("#lobbyTeams").innerHTML = S.teams.map((t) => {
     const ps = S.players.filter((p) => p.team === t.id);
     return `<div class="tcol" style="--tc:${t.color}">
       <div class="th"><span>${esc(t.icon)}</span>${esc(t.name)}<span class="n">${ps.length}</span></div>
-      <ul>${ps.map((p) => `<li><span class="${p.online ? "" : "off"}">${esc(p.name)}</span>
+      <ul>${ps.map((p) => `<li><span class="${p.online ? "" : "off"}">${esc(p.name)}${p.bot ? `<span class="bot-tag" title="Pretend student">🎭</span>` : ""}</span>
         <select data-move="${p.id}" title="Move to team">${teamOptions(t.id)}</select>
         <button class="xbtn" data-kick="${p.id}" title="Remove player">✕</button></li>`).join("") || `<li class="muted">Waiting…</li>`}</ul>
     </div>`;
   }).join("");
+}
+function removedHTML() {
+  const r = S.removed || [];
+  if (!r.length) return "";
+  return `<div class="removed"><div class="lbl">Removed students (${r.length})</div>${r.map((p) => `<div class="rm"><span>${esc(p.name)}</span><button class="btn sm ghost" data-readmit="${p.id}">Let back in</button></div>`).join("")}</div>`;
+}
+function paintJoinBits(url) {
+  $("#jmUrl").textContent = url; $("#jmCode").textContent = S.code;
+  for (const id of ["#lateJoinLive", "#lateJoinModal"]) if (document.activeElement !== $(id)) $(id).value = String(!!S.settings.lateJoin);
+  if (document.activeElement !== $("#demoLive")) $("#demoLive").value = String(!!S.settings.demo);
+  $("#jmNote").textContent = S.settings.lateJoin
+    ? (S.status === "lobby" ? "Students join a team right away." : "New students go to the smallest team that is still standing, and that team gets extra health for them.")
+    : "Joining is locked. Students who were already in the game can still reconnect.";
 }
 function hpBar(t) {
   const hp = t.maxHp ? (t.hp / t.maxHp) * 100 : 0, sh = t.maxHp ? Math.min(100, (t.shield / t.maxHp) * 100) : 0;
@@ -207,6 +283,7 @@ function hpBar(t) {
 }
 function renderLive(url) {
   $("#liveCode").textContent = S.code; $("#liveUrl").textContent = url;
+  $("#removedLive").innerHTML = removedHTML();
   $("#pauseBtn").innerHTML = S.status === "paused" ? "▶ Resume" : "⏸ Pause";
   const ranked = S.teams.filter((t) => t.active).slice().sort((a, b) => b.score - a.score);
   const rankOf = Object.fromEntries(ranked.map((t, i) => [t.id, i + 1]));
@@ -233,7 +310,7 @@ function renderPlayers() {
   ps.sort((a, b) => (sortKey === "name" ? a.name.localeCompare(b.name) : (b[sortKey] ?? 0) - (a[sortKey] ?? 0)));
   $("#ptable").innerHTML = `<thead><tr>${cols.map(([k, l]) => `<th data-sort="${k}">${l}${sortKey === k ? " ▾" : ""}</th>`).join("")}<th></th></tr></thead><tbody>` +
     ps.map((p) => { const t = S.teams[p.team]; return `<tr>
-      <td><span style="opacity:${p.online ? 1 : .45}">${esc(p.name)}</span></td>
+      <td><span style="opacity:${p.online ? 1 : .45}">${esc(p.name)}</span>${p.bot ? `<span class="bot-tag" title="Pretend student">🎭</span>` : ""}</td>
       <td><select data-move="${p.id}" style="padding:2px 4px;font-size:12px;border-width:1px;width:auto">${S.teams.filter((x) => x.active).map((x) => `<option value="${x.id}" ${x.id === p.team ? "selected" : ""}>${esc(x.icon)} ${esc(x.name)}</option>`).join("")}</select></td>
       <td class="num">${p.correct}</td><td class="num">${p.wrong}</td><td class="num">${p.acc}%</td><td class="num">${p.energy}</td><td class="num">${p.dmg}</td><td class="num"><b>${p.points}</b></td>
       <td><button class="xbtn" data-kick="${p.id}" title="Remove player">✕</button></td></tr>`; }).join("") + "</tbody>";
@@ -265,10 +342,11 @@ setInterval(() => {
 // ---------- events ----------
 document.addEventListener("click", (e) => {
   const k = e.target.closest("[data-kick]");
-  if (k) { const p = S.players.find((x) => x.id === k.dataset.kick); if (p && confirm(`Remove ${p.name} from the game?`)) conn.send({ t: "kick", pid: p.id }); }
+  if (k) { const p = S.players.find((x) => x.id === k.dataset.kick); if (p && (p.bot || confirm(`Remove ${p.name} from the game? You can let them back in later.`))) conn.send({ t: "kick", pid: p.id }); }
+  const ra = e.target.closest("[data-readmit]"); if (ra) conn.send({ t: "readmit", pid: ra.dataset.readmit });
   const th = e.target.closest("th[data-sort]"); if (th) { sortKey = th.dataset.sort; renderPlayers(); }
 });
-document.addEventListener("change", (e) => { const m = e.target.closest("select[data-move]"); if (m) conn.send({ t: "move", pid: m.dataset.move, team: Number(m.value) }); });
+document.addEventListener("change", (e) => { const m = e.target.closest && e.target.closest("select[data-move]"); if (m) conn.send({ t: "move", pid: m.dataset.move, team: Number(m.value) }); });
 $("#startBtn").onclick = () => conn.send({ t: "start" });
 $("#pauseBtn").onclick = () => conn.send({ t: S.status === "paused" ? "resume" : "pause" });
 $("#plusBtn").onclick = () => conn.send({ t: "addTime", sec: 60 });
@@ -281,6 +359,13 @@ $("#editBtn").onclick = () => {
   $("#qtext").value = questionsToText(questions); paintSetup(); paintQuestions(); render();
 };
 $("#shuffleBtn").onclick = () => conn.send({ t: "shuffle" });
+$("#demoBtnLobby").onclick = () => conn.send({ t: "demo", on: !S.settings.demo });
+const openJoin = () => $("#joinModal").classList.remove("hidden");
+$("#addBtn").onclick = openJoin; $("#addBtn2").onclick = openJoin;
+$("#jmClose").onclick = () => $("#joinModal").classList.add("hidden");
+$("#joinModal").onclick = (e) => { if (e.target.id === "joinModal") $("#joinModal").classList.add("hidden"); };
+for (const id of ["#lateJoinLive", "#lateJoinModal"]) $(id).onchange = (e) => conn.send({ t: "lateJoin", on: e.target.value === "true" });
+$("#demoLive").onchange = (e) => conn.send({ t: "demo", on: e.target.value === "true" });
 
 // ---------- boot ----------
 initSetup();

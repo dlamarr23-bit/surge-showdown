@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Surge Showdown</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- JOIN -->
+<section id="vJoin" class="p-join">
+  <div class="display" style="font-size:56px;line-height:1">⚡ Surge <span style="color:var(--accent)">Showdown</span></div>
+  <p class="muted" style="font-size:18px">Answer questions. Power up. Take down the other teams.</p>
+  <div class="panel" style="margin-top:20px">
+    <div id="stepCode">
+      <div class="field"><label for="codeIn">Game code</label><input class="input code-input" id="codeIn" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="000000"></div>
+      <button class="btn primary big" style="width:100%" id="codeBtn">Join →</button>
+    </div>
+    <div id="stepName" class="hidden">
+      <div class="field"><label for="nameIn">Your name</label><input class="input" id="nameIn" maxlength="18" autocomplete="off" placeholder="First name + last initial"></div>
+      <div id="pickWrap" class="hidden">
+        <div class="lbl">Choose your team</div>
+        <div class="team-pick" id="teamPick"></div>
+      </div>
+      <button class="btn primary big" style="width:100%" id="nameBtn">Let's go! ⚡</button>
+    </div>
+    <div id="joinErr" class="feedback bad" style="font-size:18px"></div>
+  </div>
+  <p style="margin-top:28px"><a href="/host.html" class="muted">Teacher? Host a game →</a></p>
+</section>
+
+<!-- WAIT -->
+<section id="vWait" class="hidden p-wrap">
+  <div class="wait panel" id="waitBox"></div>
+</section>
+
+<!-- GAME -->
+<section id="vGame" class="hidden p-wrap">
+  <div class="p-head" id="phead">
+    <div class="myteam" id="myTeam"></div>
+    <div class="myhp"><div id="myHpBar"></div><div class="muted" style="font-size:13px;font-weight:600;margin-top:4px" id="myHpTxt"></div></div>
+    <div class="surge"><span class="x" id="surgeX">×1.0</span></div>
+    <div class="ptimer" id="ptimer">0:00</div>
+    <div class="energy">⚡ <span id="energy">0</span></div>
+  </div>
+  <div id="fallenBanner" class="fallen-banner hidden">💀 Your team has fallen! Keep answering. You can still attack the other teams.</div>
+  <div id="pausedBanner" class="fallen-banner hidden" style="border-color:var(--accent);background:#3a3000">⏸ The teacher paused the game</div>
+  <div class="tabs">
+    <button data-tab="q" class="on">❓ Questions</button>
+    <button data-tab="shop">🛒 Shop &amp; Power-ups</button>
+  </div>
+  <div id="tabQ">
+    <div class="qcard">
+      <div class="muted" style="font-weight:600"><span id="streakTxt"></span></div>
+      <div class="qtext" id="qtext">Loading…</div>
+      <div id="answerArea"></div>
+      <div class="feedback" id="fb"></div>
+    </div>
+    <div class="mini-teams" id="miniTeams"></div>
+    <div class="feed ticker" id="ticker"></div>
+  </div>
+  <div id="tabShop" class="hidden shop">
+    <h3>⚔️ Power-ups <span class="muted" style="font-family:Fredoka;font-size:15px">· surge makes these stronger as time runs out</span></h3>
+    <div class="shop-grid" id="powers"></div>
+    <h3>⬆️ Upgrades</h3>
+    <div class="shop-grid" id="upgrades"></div>
+  </div>
+</section>
+
+<!-- RESULTS -->
+<section id="vEnd" class="hidden results">
+  <h1>🏆 Final Standings</h1>
+  <div id="podium"></div>
+  <div class="panel" id="myStats" style="max-width:640px;margin:16px auto"></div>
+  <div class="rank-list" id="rankList"></div>
+</section>
+
+<div id="targetModal" class="modal-bg hidden">
+  <div class="modal">
+    <div class="row" style="margin-bottom:12px"><h2 id="tmTitle" style="font-size:24px">Choose a target</h2><div class="spacer"></div><button class="btn sm ghost" id="tmClose">Cancel</button></div>
+    <div class="targets" id="tmTargets"></div>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script src="/play.js"></script>
+</body>
+</html>

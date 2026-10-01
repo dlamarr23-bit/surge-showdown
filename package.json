@@ -1,0 +1,13 @@
+{
+  "name": "surge-showdown",
+  "version": "1.0.0",
+  "description": "Team battle quiz game for up to 10 teams",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.40.0"
+  },
+  "private": true
+}

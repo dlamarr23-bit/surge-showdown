@@ -119,7 +119,9 @@ function sanitizeQuestions(list) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === "/api/create" && request.method === "POST") {
+    if (url.pathname === "/" || url.pathname === "/surge") return Response.redirect(url.origin + "/surge/", 302);
+    const path = url.pathname.replace(/^\/surge(?=\/(api|ws)\/)/, "");
+    if (path === "/api/create" && request.method === "POST") {
       let body = {};
       try { body = await request.json(); } catch {}
       const questions = sanitizeQuestions(body.questions);
@@ -135,14 +137,14 @@ export default {
       }
       return json({ error: "Could not create a game. Try again." }, 500);
     }
-    const m = url.pathname.match(/^\/ws\/(\d{6})$/);
+    const m = path.match(/^\/ws\/(\d{6})$/);
     if (m) {
       if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected websocket", { status: 426 });
       const stub = env.GAME.get(env.GAME.idFromName(m[1]));
       return stub.fetch(request);
     }
-    if (url.pathname === "/api/rules") return json(RULES);
-    const c = url.pathname.match(/^\/api\/exists\/(\d{6})$/);
+    if (path === "/api/rules") return json(RULES);
+    const c = path.match(/^\/api\/exists\/(\d{6})$/);
     if (c) {
       const stub = env.GAME.get(env.GAME.idFromName(c[1]));
       return stub.fetch("https://do/exists");
@@ -231,6 +233,7 @@ export class GameRoom extends DurableObject {
   // ----- HTTP -----
   async fetch(request) {
     const url = new URL(request.url);
+    if (url.pathname === "/rules") return json(RULES);
     if (url.pathname === "/exists") return json({ exists: !!this.s, status: this.s?.status, teamPick: this.s?.settings.teamPick });
     if (url.pathname === "/init") {
       if (this.s) return json({ error: "exists" }, 409);
@@ -240,7 +243,7 @@ export class GameRoom extends DurableObject {
         hostKey: rid(24),
         status: "lobby",
         settings: sanitizeSettings(body.settings),
-        questions: body.questions,
+        questions: sanitizeQuestions(body.questions),
         teams: [],
         players: {},
         feed: [],

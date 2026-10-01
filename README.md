@@ -3,7 +3,9 @@
 A team battle quiz game for up to 10 teams. Each student answers questions on their own Chromebook to earn energy, then spends that energy to upgrade, attack other teams, heal, or shield their own team. As the timer runs down, every power-up gets **exponentially stronger** (the "Surge"). Teams that are knocked out can keep attacking. When the game ends, the **top 3 teams go on a podium**.
 
 - **Students:** go to your site's main address, then type the 6-digit code and their name.
-- **Teacher:** go to `/host.html` on your site.
+- **Teacher:** go to `/surge/host` on your site.
+
+The game also runs inside the physical-science-8 Pages site. See `ADD-TO-YOUR-SITE.md` in the add-on zip.
 
 ---
 
@@ -36,7 +38,7 @@ Edit a file on GitHub (pencil icon) and commit. Cloudflare redeploys automatical
 
 ## How to run a game
 
-1. Open `/host.html`. Pick the game length, number of teams (2–10), theme, and battle settings.
+1. Open `/surge/host`. Pick the game length, number of teams (2–10), theme, and battle settings.
 2. Paste your questions, one per line:
    ```
    Question | Correct answer | Wrong | Wrong | Wrong
@@ -50,7 +52,7 @@ Edit a file on GitHub (pencil icon) and commit. Cloudflare redeploys automatical
 5. During the game: **Pause/Resume**, **+1 min / −1 min**, **End game** at any time, plus move or remove players.
 6. At the end, the podium shows the top 3 teams along with awards: MVP, most damage, most correct, longest streak, and top healer. Click **Rematch** to play again with the same students and code.
 
-If your host tab closes or refreshes, just reopen `/host.html` and it will reconnect to your game. Students who refresh or lose Wi-Fi also rejoin automatically.
+If your host tab closes or refreshes, just reopen `/surge/host` and it will reconnect to your game. Students who refresh or lose Wi-Fi also rejoin automatically.
 
 ## Game rules
 
@@ -75,13 +77,13 @@ All of these numbers can be changed in the host setup screen.
 ## Files
 ```
 src/worker.js        Game server (Cloudflare Worker + Durable Object)
-public/index.html    Student page
-public/play.js
-public/host.html     Teacher page
-public/host.js
-public/common.js     Themes, question parser, shared helpers
-public/sample-questions.js   Built-in 8th grade science sample set
-public/style.css
+public/surge/index.html    Student page
+public/surge/play.js
+public/surge/host.html     Teacher page
+public/surge/host.js
+public/surge/common.js     Themes, question parser, shared helpers
+public/surge/sample-questions.js   Built-in 8th grade science sample set
+public/surge/style.css
 wrangler.jsonc       Cloudflare config
 ```
 
@@ -90,4 +92,4 @@ wrangler.jsonc       Cloudflare config
 npm install
 npx wrangler dev
 ```
-Then open http://localhost:8787/host.html in one window and http://localhost:8787 in others.
+Then open http://localhost:8787/surge/host in one window and http://localhost:8787/surge/ in others.

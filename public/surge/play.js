@@ -5,7 +5,11 @@ let curQ = null, queuedQ = null, locked = false, wantTeam = null, tab = "q", las
 
 const V = ["vJoin", "vWait", "vGame", "vEnd"];
 const show = (v) => V.forEach((x) => $("#" + x).classList.toggle("hidden", x !== v));
-const sessKey = (c) => "ss_p_" + c;
+// ?embed=1&name=… is the teacher's "player view" inside the demo split screen
+const QS = new URLSearchParams(location.search);
+const EMBED = QS.get("embed") === "1", EMBED_NAME = QS.get("name") || "";
+const sessKey = (c) => (EMBED ? "ss_w_" : "ss_p_") + c;
+if (EMBED) document.body.classList.add("embed");
 
 // ---------- join flow ----------
 async function tryCode(c) {
@@ -16,7 +20,7 @@ async function tryCode(c) {
     const j = await (await fetch(`${BASE}/api/exists/${c}`)).json();
     if (!j.exists) { $("#joinErr").textContent = "No game with that code."; return; }
     code = c; token = store.get(sessKey(c), null);
-    history.replaceState(null, "", `${BASE}/?code=${c}`);
+    if (!EMBED) history.replaceState(null, "", `${BASE}/?code=${c}`);
     openConn();
   } catch { $("#joinErr").textContent = "Couldn't reach the game. Check your connection."; }
 }
@@ -66,19 +70,29 @@ function onMsg(m) {
   switch (m.t) {
     case "hello":
       RULES = m.rules; S = m.state;
-      if (token) conn.send({ t: "join", token }); else showNameStep();
+      if (token) conn.send({ t: "join", token });
+      else if (EMBED && EMBED_NAME) { const t = pickable()[0]; conn.send({ t: "join", name: EMBED_NAME, team: S.settings.teamPick === "choose" && t ? t.id : null }); }
+      else showNameStep();
       break;
     case "joined":
-      token = m.token; store.set(sessKey(code), token); joinedOnce = true; $("#joinErr").textContent = ""; break;
+      token = m.token; store.set(sessKey(code), token); joinedOnce = true; $("#joinErr").textContent = "";
+      if (EMBED && parent !== window) parent.postMessage({ surgeWatch: true, pid: m.pid, code }, location.origin);
+      break;
     case "me": me = m.me; unremove(); render(); break;
     case "readmitted": unremove(); break;
-    case "state": S = m.state; if (removed) break; if (me) render(); else if (!token) showNameStep(); break;
+    case "state": S = m.state; if (removed) break; if (me) render(); else if (!token && !EMBED) showNameStep(); break;
     case "q":
       if (!m.q) { curQ = null; queuedQ = null; break; }
       if (removed) break;
       if (locked) queuedQ = m.q; else { curQ = m.q; renderQ(); }
       break;
-    case "result": onResult(m); break;
+    case "result":
+      if (m.auto) { // autoplay picked for us: show it like a tap
+        if (locked || !curQ) break;
+        locked = true; lastPick = document.querySelectorAll(".opt")[m.pick] || null;
+        if (curQ.type === "text" && $("#typedIn")) $("#typedIn").value = m.correct ? m.answer : "…";
+      }
+      onResult(m); break;
     case "toast": toast(m.msg, "good"); break;
     case "error":
       if (!me) {

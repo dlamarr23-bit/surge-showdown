@@ -54,7 +54,7 @@ Edit a file on GitHub and commit. Both the Worker and the Pages site redeploy au
    - A line with only a correct answer becomes a **type-the-answer** question. Typed answers aren't case-sensitive.
    - Click **💾 Save set** to keep a set in this browser for next time.
    - Add a picture to any part with `[img: https://link-to-picture]`. Google Drive links work if the file is shared.
-3. Optional: tick **Demo mode: 40 pretend students** to watch a full game by yourself. Pretend students join, answer (some right, some wrong), shop and attack. Real students can still join. You can turn them on or off from the lobby or during the game.
+3. Optional: tick **Demo mode: 40 pretend students** to watch a full game by yourself. Pretend students join, answer (some right, some wrong), shop and attack. Real students can still join. You can turn them on or off from the lobby or during the game. In demo mode the host screen splits in two: your projected screen on the left and one player's Chromebook view ("Teacher View") on the right. Set it to **Autoplay on** to watch, or **I'll play** to answer yourself. Click ✕ to hide it.
 4. Click **Create game**, project the screen, and students join with the code.
 4. In the lobby you can move students between teams, shuffle the teams, or remove a student. Then click **Start**.
 5. During the game: **Pause/Resume**, **+1 min / −1 min**, **End game**, move players, and **add or drop students any time**:

@@ -188,6 +188,18 @@
   </div>
 </section>
 
+<!-- Demo mode: split screen with one player's view -->
+<aside id="watchPane" class="watch-pane hidden">
+  <div class="wp-head">
+    <div><b>👀 Player view</b><div class="muted" id="wpWho" style="font-size:13px">Joining…</div></div>
+    <div class="spacer"></div>
+    <select id="wpAuto" title="Autoplay"><option value="true">Autoplay on</option><option value="false">I'll play</option></select>
+    <button class="btn sm ghost" id="wpHide" title="Hide the player view">✕</button>
+  </div>
+  <iframe id="wpFrame" title="Player view"></iframe>
+</aside>
+<button id="wpShow" class="btn sm wp-show hidden">👀 Show player view</button>
+
 <div id="joinModal" class="modal-bg hidden">
   <div class="modal" style="text-align:center;width:min(900px,100%)">
     <div class="row" style="justify-content:flex-end"><button class="btn sm ghost" id="jmClose">Close</button></div>

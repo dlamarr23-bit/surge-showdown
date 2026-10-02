@@ -303,3 +303,12 @@ table.ptable { width: 100%; border-collapse: collapse; font-size: 14px; }
 .answer-img { max-height: 120px; border-radius: 8px; display: block; margin: 8px auto 0; background: #fff; }
 .removed-box { text-align: center; }
 .qtext.short { min-height: 0; }
+
+/* ---------- demo split screen ---------- */
+body.split { --pw: clamp(340px, 33vw, 480px); padding-right: var(--pw); }
+.watch-pane { position: fixed; top: 0; right: 0; bottom: 0; width: var(--pw, 400px); display: flex; flex-direction: column; background: #070914; border-left: 2px solid var(--accent); z-index: 30; }
+.wp-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.wp-head select { width: auto; padding: 6px 8px; font-size: 13px; }
+.watch-pane iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
+.wp-show { position: fixed; right: 14px; bottom: 80px; z-index: 30; }
+body.embed .p-wrap { padding: 10px; }

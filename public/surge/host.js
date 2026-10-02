@@ -223,9 +223,38 @@ function newGame() {
   if (conn) conn.close(); conn = null; session = null; S = null; store.del("ss_host"); editing = false; render();
 }
 
+// ---------- DEMO SPLIT SCREEN (teacher screen + one player's screen) ----------
+let watch = { code: null, pid: null, hidden: false };
+const WATCH_NAME = "Teacher View";
+function renderWatch() {
+  const on = !!(S && S.settings.demo && !editing);
+  const pane = $("#watchPane");
+  document.body.classList.toggle("split", on && !watch.hidden);
+  pane.classList.toggle("hidden", !on || watch.hidden);
+  $("#wpShow").classList.toggle("hidden", !on || !watch.hidden);
+  if (!on) return;
+  const gone = watch.pid && !S.players.some((p) => p.id === watch.pid);
+  if (watch.code !== S.code || (gone && S.status !== "ended")) {
+    watch = { code: S.code, pid: null, hidden: watch.hidden };
+    store.del("ss_w_" + S.code); // fresh player each time the view is rebuilt
+    $("#wpFrame").src = `${BASE}/?code=${S.code}&embed=1&name=${encodeURIComponent(WATCH_NAME)}`;
+  }
+  const me = S.players.find((p) => p.id === watch.pid);
+  if (me) { const t = S.teams[me.team]; $("#wpWho").textContent = `${me.name} · ${t ? t.icon + " " + t.name : ""} · ${me.points} pts`; }
+}
+window.addEventListener("message", (e) => {
+  if (e.origin !== location.origin || !e.data || !e.data.surgeWatch || !S || e.data.code !== S.code) return;
+  watch.pid = e.data.pid;
+  conn.send({ t: "autopilot", pid: watch.pid, on: $("#wpAuto").value === "true" });
+});
+$("#wpAuto").onchange = () => { if (watch.pid) conn.send({ t: "autopilot", pid: watch.pid, on: $("#wpAuto").value === "true" }); };
+$("#wpHide").onclick = () => { watch.hidden = true; renderWatch(); };
+$("#wpShow").onclick = () => { watch.hidden = false; renderWatch(); };
+
 // ---------- RENDER ----------
 let lastStatus = null;
 function render() {
+  renderWatch();
   if (!S || editing) {
     show("setup");
     $("#createBtn").textContent = editing ? "Save changes" : "Create game →";
@@ -258,7 +287,7 @@ function renderLobby(url) {
     const ps = S.players.filter((p) => p.team === t.id);
     return `<div class="tcol" style="--tc:${t.color}">
       <div class="th"><span>${esc(t.icon)}</span>${esc(t.name)}<span class="n">${ps.length}</span></div>
-      <ul>${ps.map((p) => `<li><span class="${p.online ? "" : "off"}">${esc(p.name)}${p.bot ? `<span class="bot-tag" title="Pretend student">🎭</span>` : ""}</span>
+      <ul>${ps.map((p) => `<li><span class="${p.online ? "" : "off"}">${esc(p.name)}${p.bot ? `<span class="bot-tag" title="Pretend student">🎭</span>` : p.watch ? `<span class="bot-tag" title="Your player view">👀</span>` : ""}</span>
         <select data-move="${p.id}" title="Move to team">${teamOptions(t.id)}</select>
         <button class="xbtn" data-kick="${p.id}" title="Remove player">✕</button></li>`).join("") || `<li class="muted">Waiting…</li>`}</ul>
     </div>`;
@@ -310,7 +339,7 @@ function renderPlayers() {
   ps.sort((a, b) => (sortKey === "name" ? a.name.localeCompare(b.name) : (b[sortKey] ?? 0) - (a[sortKey] ?? 0)));
   $("#ptable").innerHTML = `<thead><tr>${cols.map(([k, l]) => `<th data-sort="${k}">${l}${sortKey === k ? " ▾" : ""}</th>`).join("")}<th></th></tr></thead><tbody>` +
     ps.map((p) => { const t = S.teams[p.team]; return `<tr>
-      <td><span style="opacity:${p.online ? 1 : .45}">${esc(p.name)}</span>${p.bot ? `<span class="bot-tag" title="Pretend student">🎭</span>` : ""}</td>
+      <td><span style="opacity:${p.online ? 1 : .45}">${esc(p.name)}</span>${p.bot ? `<span class="bot-tag" title="Pretend student">🎭</span>` : p.watch ? `<span class="bot-tag" title="Your player view">👀</span>` : ""}</td>
       <td><select data-move="${p.id}" style="padding:2px 4px;font-size:12px;border-width:1px;width:auto">${S.teams.filter((x) => x.active).map((x) => `<option value="${x.id}" ${x.id === p.team ? "selected" : ""}>${esc(x.icon)} ${esc(x.name)}</option>`).join("")}</select></td>
       <td class="num">${p.correct}</td><td class="num">${p.wrong}</td><td class="num">${p.acc}%</td><td class="num">${p.energy}</td><td class="num">${p.dmg}</td><td class="num"><b>${p.points}</b></td>
       <td><button class="xbtn" data-kick="${p.id}" title="Remove player">✕</button></td></tr>`; }).join("") + "</tbody>";

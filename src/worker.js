@@ -218,7 +218,7 @@ export class GameRoom extends DurableObject {
   publicState(isHost) {
     const s = this.s, now = Date.now();
     const players = Object.values(s.players).filter((p) => !p.kicked).map((p) => ({
-      id: p.id, name: p.name, team: p.team, online: p.online, bot: !!p.bot,
+      id: p.id, name: p.name, team: p.team, online: p.online, bot: !!p.bot, watch: !!p.watch,
       points: Math.round(p.points), correct: p.correct, dmg: Math.round(p.dmg),
       ...(isHost ? { wrong: p.wrong, energy: Math.floor(p.energy) } : {}),
     }));
@@ -226,7 +226,7 @@ export class GameRoom extends DurableObject {
       code: s.code, status: s.status, settings: { ...s.settings }, qCount: s.questions.length,
       teams: s.teams.map((t) => ({ ...t, hp: Math.round(t.hp), shield: Math.round(t.shield), score: this.teamScore(t), size: this.teamSize(t.id) })),
       players, feed: s.feed.slice(-25),
-      ...(isHost ? { removed: Object.values(s.players).filter((p) => p.kicked && !p.bot).map((p) => ({ id: p.id, name: p.name, team: p.team })) } : {}),
+      ...(isHost ? { removed: Object.values(s.players).filter((p) => p.kicked && !p.bot && !p.watch).map((p) => ({ id: p.id, name: p.name, team: p.team })) } : {}),
       totalMs: s.totalMs, elapsedBase: s.elapsedBase, runStartedAt: s.runStartedAt, serverNow: now,
       surge: this.surge(now), endReason: s.endReason, results: s.results,
     };
@@ -258,6 +258,12 @@ export class GameRoom extends DurableObject {
         if (s.status === "ended") return;
         this.setDemo(!!m.on);
         break;
+      case "autopilot": { // demo mode: the teacher's "player view" plays itself
+        const p = s.players[m.pid]; if (!p || p.bot || !s.settings.demo) return;
+        p.watch = true; p.auto = !!m.on;
+        if (p.auto) { p.skill ||= 0.75; p.speed ||= 0.8; p.nextAct = Date.now() + 1500; this.ensureBotTimer(); }
+        break;
+      }
       case "start": {
         if (s.status !== "lobby") return;
         const counts = s.teams.map((t) => this.teamSize(t.id));
@@ -270,7 +276,7 @@ export class GameRoom extends DurableObject {
         s.totalMs = Math.round(s.settings.durationMin * 60000);
         s.elapsedBase = 0; s.runStartedAt = Date.now(); s.status = "running";
         s.feed = []; this.feed("🚀 The battle has begun!", "sys");
-        for (const p of Object.values(s.players)) if (!p.kicked) { this.nextQuestion(p); if (p.bot) p.nextAct = Date.now() + 1500 + Math.random() * 5000; }
+        for (const p of Object.values(s.players)) if (!p.kicked) { this.nextQuestion(p); if (p.bot || p.auto) p.nextAct = Date.now() + 1500 + Math.random() * 5000; }
         await this.scheduleAlarm();
         break;
       }
@@ -371,7 +377,7 @@ export class GameRoom extends DurableObject {
       this.ensureBotTimer();
     } else {
       s.botsToAdd = 0;
-      for (const p of Object.values(s.players)) if (p.bot && !p.kicked) this.removePlayer(p);
+      for (const p of Object.values(s.players)) if ((p.bot || p.watch) && !p.kicked) { p.auto = false; this.removePlayer(p); }
       if (s.status === "running" || s.status === "paused") this.feed("🎭 Pretend students left the game", "sys");
     }
   }
@@ -578,7 +584,7 @@ export class GameRoom extends DurableObject {
   // ----- demo mode: pretend students -----
   ensureBotTimer() {
     const s = this.s;
-    const need = s && s.status !== "ended" && (s.botsToAdd > 0 || (s.settings.demo && Object.values(s.players).some((p) => p.bot && !p.kicked)));
+    const need = s && s.status !== "ended" && (s.botsToAdd > 0 || (s.settings.demo && Object.values(s.players).some((p) => (p.bot || p.auto) && !p.kicked)));
     if (need && !this.botTimer) this.botTimer = setInterval(() => this.botTick(), 1000);
     else if (!need) this.stopBotTimer();
   }
@@ -603,13 +609,20 @@ export class GameRoom extends DurableObject {
     if (s.status === "running") {
       const now = Date.now();
       for (const p of Object.values(s.players)) {
-        if (!p.bot || p.kicked || now < (p.nextAct || 0)) continue;
+        if (!(p.bot || p.auto) || p.kicked || now < (p.nextAct || 0)) continue;
         if (p.cur == null) this.nextQuestion(p);
         const ok = Math.random() < p.skill;
-        this.applyAnswer(p, ok);
+        const q = s.questions[p.cur], right = p.opts ? p.opts.indexOf(0) : -1;
+        const gained = this.applyAnswer(p, ok);
+        if (p.auto) { // show the pick on the watched player's screen
+          let pick = right;
+          if (!ok && p.opts) { const others = p.opts.map((_, i) => i).filter((i) => i !== right); pick = others[Math.floor(Math.random() * others.length)]; }
+          this.sendToPlayer(p.id, { t: "result", auto: true, pick, correct: ok, gained, answer: q.ans[0].t, answerImg: q.ans[0].img || "", right, streak: p.streak });
+        }
         this.nextQuestion(p);
         p.nextAct = now + (3000 + Math.random() * 6000) * p.speed + (ok ? 0 : 1500);
         if (Math.random() < 0.6) this.botSpend(p, now);
+        if (p.auto) this.sendMe(p);
         changed = true;
         if (s.status !== "running") break;
       }

@@ -185,6 +185,17 @@ export class GameRoom extends DurableObject {
     for (const p of Object.values(s.players)) if (p.team >= s.teams.length) p.team = this.smallestTeam();
   }
   teamSize(id) { return Object.values(this.s.players).filter((p) => p.team === id && !p.kicked).length; }
+  // Power-up multiplier that evens out smaller teams: biggest team size / this team size.
+  // A team of 3 playing against a team of 4 gets 4/3 = ×1.33 (33% stronger power-ups).
+  teamBoost(id) {
+    const s = this.s;
+    if (!s.settings.sizeBoost) return 1;
+    const n = this.teamSize(id);
+    if (n <= 0) return 1;
+    let big = 0;
+    for (const t of s.teams) if (s.status === "lobby" || t.active) big = Math.max(big, this.teamSize(t.id));
+    return Math.max(1, big / n);
+  }
   smallestTeam(onlyAlive = false) {
     let best = -1, bestN = Infinity;
     const order = shuffle(this.s.teams.map((t) => t.id));
@@ -224,7 +235,7 @@ export class GameRoom extends DurableObject {
     }));
     return {
       code: s.code, status: s.status, settings: { ...s.settings }, qCount: s.questions.length,
-      teams: s.teams.map((t) => ({ ...t, hp: Math.round(t.hp), shield: Math.round(t.shield), score: this.teamScore(t), size: this.teamSize(t.id) })),
+      teams: s.teams.map((t) => ({ ...t, hp: Math.round(t.hp), shield: Math.round(t.shield), score: this.teamScore(t), size: this.teamSize(t.id), boost: this.teamBoost(t.id) })),
       players, feed: s.feed.slice(-25),
       ...(isHost ? { removed: Object.values(s.players).filter((p) => p.kicked && !p.bot && !p.watch).map((p) => ({ id: p.id, name: p.name, team: p.team })) } : {}),
       totalMs: s.totalMs, elapsedBase: s.elapsedBase, runStartedAt: s.runStartedAt, serverNow: now,
@@ -506,7 +517,7 @@ export class GameRoom extends DurableObject {
     if (p.energy < P.cost) return "Not enough energy.";
     if (!mine.alive && P.target === "self") return "Your team has fallen — you can't heal or shield, but you can still attack!";
     if (!mine.alive && !s.settings.fallenCanAttack) return "Your team has fallen.";
-    const amt = P.base * s.settings.powerScale * this.surge(now);
+    const amt = P.base * s.settings.powerScale * this.surge(now) * this.teamBoost(mine.id);
     const tag = s.settings.feedNames ? `${p.name} (${mine.icon} ${mine.name})` : `${mine.icon} ${mine.name}`;
     let msg = "";
     if (P.target === "enemy") {

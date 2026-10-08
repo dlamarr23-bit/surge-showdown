@@ -2,6 +2,10 @@
 
 A team battle quiz game for up to 10 teams. Each student answers questions on their own Chromebook to earn energy, then spends that energy to upgrade, attack other teams, heal, or shield their own team. As the timer runs down, every power-up gets **exponentially stronger** (the "Surge"). Teams that are knocked out can keep attacking. When the game ends, the **top 3 teams go on a podium**.
 
+**Smaller teams get a boost.** If teams are uneven, smaller teams' power-ups are multiplied by (biggest team ÷ their team). A team of 3 playing against a team of 4 gets power-ups 33% stronger. The boost shows as a green 💪 badge on the team. Turn it off under **Battle → Boost smaller teams**.
+
+**Music.** The host screen can play a lobby song, a game song and a winning song (the same tracks as the vocabulary site, in `public/surge/music/`). Pick them under **🎵 Music** in setup; a music bar in the lobby and during the game mutes, changes the song or sets the volume. Music never plays on student Chromebooks. Credits: `MUSIC-CREDITS.md`.
+
 - **Students:** go to your site's main address, then type the 6-digit code and their name.
 - **Teacher:** go to `/surge/host` on your site.
 

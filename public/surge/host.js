@@ -2,7 +2,7 @@
 const DEFAULTS = {
   title: "Surge Showdown", theme: "elements", teamCount: 4, teams: themeTeams("elements"),
   durationMin: 10, hpAmount: 300, hpMode: "perPlayer", surgeMax: 5, surgeCurve: 4,
-  powerScale: 1, energyScale: 1, fallenCanAttack: true, lastTeamEnds: false, teamPick: "auto",
+  powerScale: 1, energyScale: 1, fallenCanAttack: true, sizeBoost: true, lastTeamEnds: false, teamPick: "auto",
   lateJoin: true, wrongPenalty: 5, ptsCorrect: 10, ptsDamage: 1, survivalBonus: 300, koBonus: 200, feedNames: true, demo: false,
 };
 // The Google Sheets question template ("Make a copy" link)
@@ -35,6 +35,7 @@ const SETTINGS = [
   { g: "battle", k: "powerScale", label: "Power-up strength", desc: "Bigger means faster, more dramatic battles.", opts: range([0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3], times) },
   { g: "battle", k: "energyScale", label: "Energy earned per answer", desc: "How fast students can afford power-ups.", opts: range([0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3], times) },
   { g: "battle", k: "fallenCanAttack", label: "Fallen teams can still attack", desc: "Knocked-out teams keep answering and attacking.", opts: yesNo },
+  { g: "battle", k: "sizeBoost", label: "Boost smaller teams", desc: "Smaller teams get stronger power-ups to even things out. A team of 3 against a team of 4 gets power-ups 33% stronger.", opts: yesNo },
   { g: "battle", k: "lastTeamEnds", label: "End when one team is left", desc: "Otherwise the game runs until time is up.", opts: yesNo },
   { g: "battle", k: "feedNames", label: "Show names in the battle feed", desc: "No shows team names only.", opts: yesNo },
   { g: "surge", k: "surgeMax", label: "Max surge at the end", desc: "Power-up multiplier at the final second.", opts: range([1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 15], times) },
@@ -166,7 +167,7 @@ function paintPowerInfo() {
   const sc = cfg.powerScale;
   $("#powerInfo").innerHTML = Object.values(RULES.powers).map((p) =>
     `${p.icon} <b style="color:var(--ink)">${p.name}</b> (${p.cost} energy): ${p.desc} Starts at <b style="color:var(--good)">${Math.round(p.base * sc)}</b>, ends at <b style="color:var(--accent)">${Math.round(p.base * sc * cfg.surgeMax)}</b>.`
-  ).join("<br>") + `<br><br>Upgrades: <b style="color:var(--ink)">Energy per Question</b> (10 → 160) and <b style="color:var(--ink)">Streak Bonus</b>. Fallen teams can't heal or shield${cfg.fallenCanAttack ? ", but they can still attack" : " and can't attack"}.`;
+  ).join("<br>") + `<br><br>Upgrades: <b style="color:var(--ink)">Energy per Question</b> (10 → 160) and <b style="color:var(--ink)">Streak Bonus</b>. Fallen teams can't heal or shield${cfg.fallenCanAttack ? ", but they can still attack" : " and can't attack"}.${cfg.sizeBoost ? ` Smaller teams get a <b style="color:var(--ink)">size boost</b>: power-ups × (biggest team ÷ their team), so 3 players vs 4 means +33%.` : ""}`;
 }
 function paintQuestions() {
   store.set("ss_lastQuestions", questions);
@@ -286,12 +287,16 @@ function renderLobby(url) {
   $("#lobbyTeams").innerHTML = S.teams.map((t) => {
     const ps = S.players.filter((p) => p.team === t.id);
     return `<div class="tcol" style="--tc:${t.color}">
-      <div class="th"><span>${esc(t.icon)}</span>${esc(t.name)}<span class="n">${ps.length}</span></div>
+      <div class="th"><span>${esc(t.icon)}</span>${esc(t.name)}${boostTag(t)}<span class="n">${ps.length}</span></div>
       <ul>${ps.map((p) => `<li><span class="${p.online ? "" : "off"}">${esc(p.name)}${p.bot ? `<span class="bot-tag" title="Pretend student">🎭</span>` : p.watch ? `<span class="bot-tag" title="Your player view">👀</span>` : ""}</span>
         <select data-move="${p.id}" title="Move to team">${teamOptions(t.id)}</select>
         <button class="xbtn" data-kick="${p.id}" title="Remove player">✕</button></li>`).join("") || `<li class="muted">Waiting…</li>`}</ul>
     </div>`;
   }).join("");
+}
+function boostTag(t) {
+  const bp = Math.round(((t.boost || 1) - 1) * 100);
+  return bp > 0 ? `<span class="boost-tag" title="Smaller team: power-ups are ${bp}% stronger">💪 +${bp}%</span>` : "";
 }
 function removedHTML() {
   const r = S.removed || [];
@@ -321,7 +326,7 @@ function renderLive(url) {
     lastHp[t.id] = t.hp + t.shield;
     return `<div class="tcard ${t.alive ? "" : "dead"} ${wasHit ? "hit" : ""}" style="--tc:${t.color}">
       ${t.alive ? "" : `<div class="fallen-tag">FALLEN</div>`}
-      <div class="tc-top"><div class="tc-icon">${esc(t.icon)}</div><div><div class="tc-name">${esc(t.name)}</div><div class="muted" style="font-size:13px;font-weight:600">#${rankOf[t.id]} · ${t.size} player${t.size === 1 ? "" : "s"}</div></div>
+      <div class="tc-top"><div class="tc-icon">${esc(t.icon)}</div><div><div class="tc-name">${esc(t.name)}</div><div class="muted" style="font-size:13px;font-weight:600">#${rankOf[t.id]} · ${t.size} player${t.size === 1 ? "" : "s"}${boostTag(t)}</div></div>
         <div class="tc-score">${t.score.toLocaleString()}<small>points</small></div></div>
       <div class="tc-hp">${hpBar(t)}</div>
       <div class="tc-meta"><span>❤️ ${t.hp} / ${t.maxHp}${t.shield ? ` · 🛡️ ${t.shield}` : ""}</span><span>${t.kos ? `💀×${t.kos}` : ""}</span></div>

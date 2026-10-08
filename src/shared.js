@@ -38,6 +38,7 @@ export const DEFAULT_SETTINGS = {
   powerScale: 1,
   energyScale: 1,
   fallenCanAttack: true,
+  sizeBoost: true, // smaller teams get stronger power-ups (biggest team size / this team size)
   lastTeamEnds: false,
   teamPick: "auto", // auto | choose
   lateJoin: true,
@@ -95,7 +96,7 @@ export function sanitizeSettings(input, prev = DEFAULT_SETTINGS) {
   s.surgeCurve = num(i.surgeCurve, s.surgeCurve, 0.5, 10);
   s.powerScale = num(i.powerScale, s.powerScale, 0.25, 5);
   s.energyScale = num(i.energyScale, s.energyScale, 0.25, 5);
-  for (const k of ["fallenCanAttack", "lastTeamEnds", "lateJoin", "feedNames", "demo"]) {
+  for (const k of ["fallenCanAttack", "sizeBoost", "lastTeamEnds", "lateJoin", "feedNames", "demo"]) {
     if (typeof i[k] === "boolean") s[k] = i[k];
     else if (i[k] === "true" || i[k] === "false") s[k] = i[k] === "true";
   }

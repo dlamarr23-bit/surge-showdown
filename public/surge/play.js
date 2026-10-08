@@ -133,7 +133,8 @@ function hpBar(t) {
 function renderGame() {
   const t = myTeam();
   $("#phead").style.setProperty("--tc", t.color);
-  $("#myTeam").innerHTML = `<span style="font-size:30px">${esc(t.icon)}</span>${esc(t.name)}`;
+  const bp = Math.round(((t.boost || 1) - 1) * 100);
+  $("#myTeam").innerHTML = `<span style="font-size:30px">${esc(t.icon)}</span>${esc(t.name)}${bp > 0 ? `<span class="boost-tag" title="Your team is smaller, so your power-ups are ${bp}% stronger">💪 +${bp}%</span>` : ""}`;
   $("#myHpBar").innerHTML = hpBar(t);
   $("#myHpTxt").textContent = t.alive ? `❤️ ${t.hp} / ${t.maxHp}${t.shield ? `  ·  🛡️ ${t.shield}` : ""}  ·  ${t.score.toLocaleString()} pts` : `💀 Fallen · ${t.score.toLocaleString()} pts`;
   const hpNow = t.hp + t.shield;
@@ -212,7 +213,7 @@ function buildShop() {
 }
 function powerAmt(k) {
   const tm = timing(S, conn.offset);
-  return Math.round(RULES.powers[k].base * S.settings.powerScale * tm.surge);
+  return Math.round(RULES.powers[k].base * S.settings.powerScale * tm.surge * (myTeam().boost || 1));
 }
 function updateShop() {
   if (!shopBuilt || !me) return;

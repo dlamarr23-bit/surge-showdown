@@ -65,6 +65,17 @@
         <div data-group="scoring"></div>
       </div>
 
+      <div class="panel sect">
+        <h2>🎵 Music</h2>
+        <p class="muted" style="margin-top:0">Plays on this screen only (never on student Chromebooks). Change or mute it any time from the music bar.</p>
+        <div class="srow"><div class="stxt"><b>Lobby music</b><span>Plays while students join. Stops when the game starts.</span></div>
+          <div class="mu-ctl"><select id="muLobby" aria-label="Lobby music"></select><button type="button" class="btn sm ghost" id="muLobbyTry" data-part="lobby">▶ Listen</button><input type="range" class="mu-vol" id="muLobbyVol" min="0" max="100" aria-label="Lobby music volume" title="Lobby music volume"></div></div>
+        <div class="srow"><div class="stxt"><b>Game music</b><span>Plays during the battle. Pauses when you pause the game.</span></div>
+          <div class="mu-ctl"><select id="muGame" aria-label="Game music"></select><button type="button" class="btn sm ghost" id="muGameTry" data-part="game">▶ Listen</button><input type="range" class="mu-vol" id="muGameVol" min="0" max="100" aria-label="Game music volume" title="Game music volume"></div></div>
+        <div class="srow"><div class="stxt"><b>Winning song</b><span>Plays once when the podium appears.</span></div>
+          <select id="muWin" aria-label="Winning song"><option value="true">Yes</option><option value="false">No</option></select></div>
+      </div>
+
       <label class="demo-card">
         <input type="checkbox" id="demo">
         <div><b>Demo mode: 40 pretend students</b>
@@ -188,6 +199,14 @@
   </div>
 </section>
 
+<!-- Music bar (lobby + game): mute, change song, volume -->
+<div id="muBar" class="mu-bar hidden">
+  <button type="button" class="mu-mute" id="muMute" aria-pressed="false"></button>
+  <span class="mu-label" id="muLabel">Lobby music</span>
+  <select id="muSong" aria-label="Song"></select>
+  <input type="range" class="mu-vol" id="muVol" min="0" max="100" aria-label="Music volume" title="Volume">
+</div>
+
 <!-- Demo mode: split screen with one player's view -->
 <aside id="watchPane" class="watch-pane hidden">
   <div class="wp-head">
@@ -218,5 +237,6 @@
 <script src="/surge/common.js"></script>
 <script src="/surge/sample-questions.js"></script>
 <script src="/surge/host.js"></script>
+<script src="/surge/music.js"></script>
 </body>
 </html>

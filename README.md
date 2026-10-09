@@ -49,6 +49,7 @@ Edit a file on GitHub and commit. Both the Worker and the Pages site redeploy au
 ## How to run a game
 
 1. Open `/surge/host`. Every setting is a dropdown: game length, teams, theme, battle, surge and scoring.
+   - **How-to-play intro** (under 🎮 Game): when you click **Start game**, full-screen slides explain earning energy, the shop, attacking, protecting, health, the Surge and how to win, using your actual settings. The timer waits until the slides finish. Choose auto-advance, click-through, or no intro. **Skip intro** (or Esc) jumps straight to the game; ← → move between slides. Preview them any time with **📖 How to play** in the lobby.
 2. Add questions. The easiest way is the **Google Sheets template** (button on the host screen, or `question-template.xlsx`): one row per question, with optional picture links for the question and every answer. Share the sheet as "Anyone with the link → Viewer", paste the link, click **Import**. Or paste lines:
    ```
    Question | Correct answer | Wrong | Wrong | Wrong

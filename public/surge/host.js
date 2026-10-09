@@ -3,7 +3,7 @@ const DEFAULTS = {
   title: "Surge Showdown", theme: "elements", teamCount: 4, teams: themeTeams("elements"),
   durationMin: 10, hpAmount: 300, hpMode: "perPlayer", surgeMax: 5, surgeCurve: 4,
   powerScale: 1, energyScale: 1, fallenCanAttack: true, sizeBoost: true, lastTeamEnds: false, teamPick: "auto",
-  lateJoin: true, wrongPenalty: 5, ptsCorrect: 10, ptsDamage: 1, survivalBonus: 300, koBonus: 200, feedNames: true, demo: false,
+  lateJoin: true, wrongPenalty: 5, ptsCorrect: 10, ptsDamage: 1, survivalBonus: 300, koBonus: 200, feedNames: true, demo: false, intro: "auto",
 };
 // The Google Sheets question template ("Make a copy" link)
 const SHEET_TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1id9tjF6A5Ua9x3r4QxDGTu7DRMpviwWUOj8LGmud1eU/copy";
@@ -25,6 +25,7 @@ const range = (arr, fmt) => arr.map((v) => [v, fmt(v)]);
 const times = (v) => "×" + v;
 const SETTINGS = [
   { g: "game", k: "durationMin", label: "Game length", desc: "How long the battle lasts. You can add or remove time during the game.", opts: range([3, 5, 8, 10, 12, 15, 20, 25, 30, 45], (v) => `${v} min`) },
+  { g: "game", k: "intro", label: "How-to-play intro", desc: "Slides on this screen explain the game when you click Start. The timer waits until they finish. Skip any time.", opts: [["auto", "Yes, auto-advance"], ["manual", "Yes, I click Next"], ["off", "No intro"]] },
   { g: "teams", k: "teamCount", label: "Number of teams", desc: "Teams with no players sit out.", opts: range([2, 3, 4, 5, 6, 7, 8, 9, 10], String) },
   { g: "teams", k: "theme", label: "Team theme", desc: "Names, icons and colors for the teams.", opts: null },
   { g: "teams", k: "teamPick", label: "How students join a team", desc: "Auto-balance keeps teams even.", opts: [["auto", "Auto-balance"], ["choose", "Students choose"]] },
@@ -381,7 +382,11 @@ document.addEventListener("click", (e) => {
   const th = e.target.closest("th[data-sort]"); if (th) { sortKey = th.dataset.sort; renderPlayers(); }
 });
 document.addEventListener("change", (e) => { const m = e.target.closest && e.target.closest("select[data-move]"); if (m) conn.send({ t: "move", pid: m.dataset.move, team: Number(m.value) }); });
-$("#startBtn").onclick = () => conn.send({ t: "start" });
+$("#startBtn").onclick = () => {
+  const go = () => { if (S && S.status === "lobby") conn.send({ t: "start" }); };
+  if (cfg.intro === "off") go(); else Intro.play(S, go);
+};
+$("#introBtn").onclick = () => Intro.play(S);
 $("#pauseBtn").onclick = () => conn.send({ t: S.status === "paused" ? "resume" : "pause" });
 $("#plusBtn").onclick = () => conn.send({ t: "addTime", sec: 60 });
 $("#minusBtn").onclick = () => conn.send({ t: "addTime", sec: -60 });

@@ -328,3 +328,41 @@ body.embed .p-wrap { padding: 10px; }
 .mu-mute.muted { background: var(--panel2); color: var(--muted); }
 body.split .mu-bar { left: 16px; }
 @media (max-width: 700px) { .mu-bar .mu-label { display: none; } .mu-bar .mu-vol { width: 70px; } }
+
+/* ---------- How-to-play intro (host screen) ---------- */
+body.intro-on { overflow: hidden; }
+.intro { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 70px 24px 110px;
+  background: radial-gradient(60% 55% at 50% 42%, #5a4510 0%, #2a2008 40%, #000 80%); color: #fff; }
+.intro.hidden { display: none; }
+.in-skip { position: absolute; top: 18px; right: 20px; color: #fff; box-shadow: inset 0 0 0 2px #ffffff55; font-size: 18px; }
+.in-stage { width: min(1100px, 100%); }
+.in-slide { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 18px; animation: inIn .5s cubic-bezier(.2,.9,.3,1.2) both; }
+.in-icon { font-size: clamp(56px, 9vw, 110px); line-height: 1; filter: drop-shadow(0 6px 24px #ffd23f66); animation: inPop .6s cubic-bezier(.2,1.6,.4,1) both; }
+.in-h { font-family: "Lilita One", sans-serif; font-weight: 400; font-size: clamp(34px, 5.4vw, 72px); line-height: 1.05; text-transform: uppercase; letter-spacing: 1px; text-shadow: 0 4px 0 #0008; margin: 0; }
+.in-pts { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; width: min(900px, 100%); text-align: left; }
+.in-pts li { display: flex; gap: 16px; align-items: center; background: #ffffff10; border: 1px solid #ffffff22; border-radius: 16px; padding: 14px 20px;
+  font-size: clamp(18px, 2.1vw, 28px); line-height: 1.3; animation: inUp .5s ease both; animation-delay: var(--d); }
+.in-pts li b { color: var(--accent); font-weight: 700; }
+.in-ic { font-size: 1.4em; flex: none; width: 1.5em; text-align: center; }
+.in-cost { display: inline-block; background: #ffd23f22; color: var(--accent); border-radius: 8px; padding: 0 8px; font-size: .8em; font-weight: 700; margin-right: 4px; }
+.in-title { gap: 26px; }
+.in-big { font-family: "Lilita One", sans-serif; font-size: clamp(48px, 8vw, 120px); line-height: 1; text-transform: uppercase; text-shadow: 0 6px 0 #0008; animation: inPop .7s cubic-bezier(.2,1.6,.4,1) both; }
+.in-teams { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px 18px; }
+.in-team { display: flex; align-items: center; gap: 10px; font-family: "Lilita One", sans-serif; font-size: clamp(22px, 2.8vw, 38px); padding: 10px 20px; border-radius: 14px;
+  background: color-mix(in srgb, var(--tc) 30%, transparent); border: 3px solid var(--tc); animation: inUp .5s ease both .3s; }
+.in-vs { font-family: "Lilita One", sans-serif; font-size: clamp(20px, 2.4vw, 32px); color: var(--accent); }
+.in-ready { font-size: clamp(22px, 2.6vw, 34px); color: #ffffffbb; animation: inBlink 1s ease-in-out infinite alternate; }
+.in-foot { position: absolute; bottom: 26px; left: 0; right: 0; display: flex; justify-content: center; align-items: center; gap: 14px; }
+.in-foot .btn.ghost { color: #fff; box-shadow: inset 0 0 0 2px #ffffff44; }
+.in-dots { display: flex; gap: 8px; }
+.in-dots button { width: 12px; height: 12px; border-radius: 50%; border: 0; padding: 0; background: #ffffff33; }
+.in-dots button.past { background: #ffffff88; }
+.in-dots button.on { background: var(--accent); transform: scale(1.3); }
+.in-prog { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: #ffffff14; }
+.in-prog.hidden { display: none; }
+.in-prog > div { height: 100%; width: 0; background: var(--accent); }
+@keyframes inIn { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: none; } }
+@keyframes inPop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
+@keyframes inUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@keyframes inBlink { from { opacity: .5; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .intro * { animation: none !important; } }

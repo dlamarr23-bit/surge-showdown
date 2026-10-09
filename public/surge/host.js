@@ -3,7 +3,7 @@ const DEFAULTS = {
   title: "Surge Showdown", theme: "elements", teamCount: 4, teams: themeTeams("elements"),
   durationMin: 10, hpAmount: 300, hpMode: "perPlayer", surgeMax: 5, surgeCurve: 4,
   powerScale: 1, energyScale: 1, fallenCanAttack: true, sizeBoost: true, lastTeamEnds: false, teamPick: "auto",
-  lateJoin: true, wrongPenalty: 5, ptsCorrect: 10, ptsDamage: 1, survivalBonus: 300, koBonus: 200, feedNames: true, demo: false, intro: "auto",
+  lateJoin: true, wrongPenalty: 5, ptsCorrect: 10, ptsDamage: 1, survivalBonus: 300, koBonus: 200, koPenalty: 0, feedNames: true, demo: false, intro: "auto",
 };
 // The Google Sheets question template ("Make a copy" link)
 const SHEET_TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1id9tjF6A5Ua9x3r4QxDGTu7DRMpviwWUOj8LGmud1eU/copy";
@@ -45,6 +45,7 @@ const SETTINGS = [
   { g: "scoring", k: "ptsDamage", label: "Points per 1 damage dealt", desc: "", opts: range([0, 0.25, 0.5, 1, 2, 3, 5], String) },
   { g: "scoring", k: "survivalBonus", label: "Survival bonus", desc: "For each team still standing at the end.", opts: range([0, 100, 200, 300, 500, 750, 1000, 2000], String) },
   { g: "scoring", k: "koBonus", label: "Knockout bonus", desc: "For the team that lands the final blow.", opts: range([0, 100, 200, 300, 500, 750, 1000, 2000], String) },
+  { g: "scoring", k: "koPenalty", label: "Knockout penalty", desc: "Points a team loses when it is knocked out. Its score can go below zero, and players can still earn points back.", opts: range([0, 100, 200, 300, 500, 750, 1000, 2000], (v) => v ? `−${v}` : "None") },
 ];
 const SPEC = Object.fromEntries(SETTINGS.map((x) => [x.k, x]));
 
@@ -328,9 +329,11 @@ function renderLive(url) {
     return `<div class="tcard ${t.alive ? "" : "dead"} ${wasHit ? "hit" : ""}" style="--tc:${t.color}">
       ${t.alive ? "" : `<div class="fallen-tag">FALLEN</div>`}
       <div class="tc-top"><div class="tc-icon">${esc(t.icon)}</div><div><div class="tc-name">${esc(t.name)}</div><div class="muted" style="font-size:13px;font-weight:600">#${rankOf[t.id]} · ${t.size} player${t.size === 1 ? "" : "s"}${boostTag(t)}</div></div>
-        <div class="tc-score">${t.score.toLocaleString()}<small>points</small></div></div>
+        <div class="tc-score ${t.score < 0 ? "neg" : ""}">${t.score.toLocaleString()}<small>points</small></div></div>
       <div class="tc-hp">${hpBar(t)}</div>
       <div class="tc-meta"><span>❤️ ${t.hp} / ${t.maxHp}${t.shield ? ` · 🛡️ ${t.shield}` : ""}</span><span>${t.kos ? `💀×${t.kos}` : ""}</span></div>
+      <div class="tc-players">${S.players.filter((p) => p.team === t.id).sort((a, b) => b.points - a.points).map((p) =>
+        `<span class="tc-p ${p.online ? "" : "off"}" title="${esc(p.name)}: ${p.points} pts">${esc(p.name)}<b>${Math.round(p.points)}</b></span>`).join("") || `<span class="muted">No players</span>`}</div>
     </div>`;
   }).join("");
   const feed = $("#feed");
@@ -343,7 +346,7 @@ function renderPlayers() {
   const cols = [["name", "Player"], ["team", "Team"], ["correct", "✓"], ["wrong", "✗"], ["acc", "Acc"], ["energy", "⚡"], ["dmg", "Dmg"], ["points", "Pts"]];
   const ps = S.players.map((p) => ({ ...p, acc: p.correct + p.wrong ? Math.round((p.correct / (p.correct + p.wrong)) * 100) : 0 }));
   ps.sort((a, b) => (sortKey === "name" ? a.name.localeCompare(b.name) : (b[sortKey] ?? 0) - (a[sortKey] ?? 0)));
-  $("#ptable").innerHTML = `<thead><tr>${cols.map(([k, l]) => `<th data-sort="${k}">${l}${sortKey === k ? " ▾" : ""}</th>`).join("")}<th></th></tr></thead><tbody>` +
+  $("#ptable").innerHTML = `<thead><tr>${cols.map(([k, l]) => `<th data-sort="${k}"${k === "name" || k === "team" ? "" : ' class="num"'}>${sortKey === k && k !== "name" && k !== "team" ? "▾ " : ""}${l}${sortKey === k && (k === "name" || k === "team") ? " ▾" : ""}</th>`).join("")}<th></th></tr></thead><tbody>` +
     ps.map((p) => { const t = S.teams[p.team]; return `<tr>
       <td><span style="opacity:${p.online ? 1 : .45}">${esc(p.name)}</span>${p.bot ? `<span class="bot-tag" title="Pretend student">🎭</span>` : p.watch ? `<span class="bot-tag" title="Your player view">👀</span>` : ""}</td>
       <td><select data-move="${p.id}" style="padding:2px 4px;font-size:12px;border-width:1px;width:auto">${S.teams.filter((x) => x.active).map((x) => `<option value="${x.id}" ${x.id === p.team ? "selected" : ""}>${esc(x.icon)} ${esc(x.name)}</option>`).join("")}</select></td>

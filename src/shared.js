@@ -47,6 +47,7 @@ export const DEFAULT_SETTINGS = {
   ptsDamage: 1,
   survivalBonus: 300,
   koBonus: 200,
+  koPenalty: 0, // points the fallen team loses when knocked out (score can go negative)
   feedNames: true,
   demo: false,
 };
@@ -106,6 +107,7 @@ export function sanitizeSettings(input, prev = DEFAULT_SETTINGS) {
   s.ptsDamage = num(i.ptsDamage, s.ptsDamage, 0, 100);
   s.survivalBonus = Math.round(num(i.survivalBonus, s.survivalBonus, 0, 100000));
   s.koBonus = Math.round(num(i.koBonus, s.koBonus, 0, 100000));
+  s.koPenalty = Math.round(num(i.koPenalty, s.koPenalty, 0, 100000));
   return s;
 }
 

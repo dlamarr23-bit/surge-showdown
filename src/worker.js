@@ -675,7 +675,8 @@ export class GameRoom extends DurableObject {
       t.hp = 0; t.shield = 0; t.alive = false; t.fellAt = Date.now();
       const at = s.teams[attacker.team];
       at.bonus += s.settings.koBonus; at.kos++;
-      (this.pendingKO ||= []).push(`💀 ${t.icon} ${t.name} has fallen! Final blow: ${s.settings.feedNames ? attacker.name + " of " : ""}${at.icon} ${at.name}`);
+      t.bonus -= s.settings.koPenalty || 0; // can push the team score below zero; players keep earning it back
+      (this.pendingKO ||= []).push(`💀 ${t.icon} ${t.name} has fallen!${s.settings.koPenalty ? ` (−${s.settings.koPenalty} pts)` : ""} Final blow: ${s.settings.feedNames ? attacker.name + " of " : ""}${at.icon} ${at.name}`);
     }
     return dealt;
   }

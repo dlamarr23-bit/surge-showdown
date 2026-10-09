@@ -47,7 +47,7 @@ const Intro = (() => {
       ] }] : []),
       { icon: "🏆", h: "How to win", pts: [
         ["⭐", `Team score = everyone's points: <b>${st.ptsCorrect}</b> per correct answer + <b>${st.ptsDamage}</b> per damage dealt.`],
-        ["🎁", [st.survivalBonus ? `<b>+${n(st.survivalBonus)}</b> for every team still standing at the end` : "", st.koBonus ? `<b>+${n(st.koBonus)}</b> for the team that knocks another team out` : ""].filter(Boolean).join(". ") + "." ],
+        ["🎁", [st.survivalBonus ? `<b>+${n(st.survivalBonus)}</b> for every team still standing at the end` : "", st.koBonus ? `<b>+${n(st.koBonus)}</b> for the team that knocks another team out` : "", st.koPenalty ? `Get knocked out and your team <b>loses ${n(st.koPenalty)}</b> points (you can earn them back)` : ""].filter(Boolean).join(". ") + "." ],
         ["⏳", ends],
         ["🥇", `The <b>top 3 teams</b> go on the podium!`],
       ].filter((p) => p[1] !== ".") },

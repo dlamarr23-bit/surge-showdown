@@ -186,8 +186,10 @@ function timing(st, offset) {
   const remaining = Math.max(0, st.totalMs - elapsed);
   const p = st.totalMs ? Math.min(1, Math.max(0, elapsed / st.totalMs)) : 0;
   const k = st.settings.surgeCurve, M = st.settings.surgeMax;
-  const surge = st.status === "lobby" ? 1 : 1 + (M - 1) * (Math.exp(k * p) - 1) / (Math.exp(k) - 1);
-  return { remaining, elapsed, p, surge };
+  // ⚔️ final showdown: last 60 seconds of a 2+ minute game, surge doubles
+  const showdown = !!(st.settings.showdown && st.status !== "lobby" && st.status !== "ended" && st.totalMs >= 120000 && remaining <= 60000);
+  const surge = (st.status === "lobby" ? 1 : 1 + (M - 1) * (Math.exp(k * p) - 1) / (Math.exp(k) - 1)) * (showdown ? 2 : 1);
+  return { remaining, elapsed, p, surge, showdown };
 }
 const fmtTime = (ms) => { const s = Math.ceil(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

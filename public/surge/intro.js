@@ -43,7 +43,13 @@ const Intro = (() => {
       ...(st.surgeMax > 1 ? [{ icon: "🌩️", h: "Watch for the SURGE!", pts: [
         ["⏱️", `Power-ups get <b>stronger</b> as time runs out. Watch the Surge meter at the top.`],
         ["🚀", `They start at <b>×1</b> and reach <b>×${st.surgeMax}</b> in the final seconds.`],
-        ["🧠", `Save some energy for the end, or strike early to knock a team out first?`],
+        st.showdown ? ["⚔️", `<b>Final Showdown:</b> in the last minute the surge <b>doubles</b> and healing turns <b>off</b>!`] : ["🧠", `Save some energy for the end, or strike early to knock a team out first?`],
+      ] }] : []),
+      ...((st.gamble || st.bounty || st.comeback > 0 || st.supplyDrops) ? [{ icon: "🎉", h: "Special events!", pts: [
+        ...(st.gamble ? [["🎲", `<b>Double or Nothing</b> (shop): bet on your next question. Right = your team <b>gains</b> health. Wrong = it <b>loses</b> health.`]] : []),
+        ...(st.bounty ? [["🎯", `The team in <b>1st place</b> has a bounty. Hit them for <b>bonus energy</b>!`]] : []),
+        ...(st.supplyDrops ? [["📦", `<b>Supply drops</b> appear during the game. The first team to <b>fill the bar with correct answers</b> wins the prize!`]] : []),
+        ...(st.comeback > 0 ? [["🔄", `Knocked out? Get <b>${st.comeback} correct answers</b> as a team to <b>come back</b> (once)!`]] : []),
       ] }] : []),
       { icon: "🏆", h: "How to win", pts: [
         ["⭐", `Team score = everyone's points: <b>${st.ptsCorrect}</b> per correct answer + <b>${st.ptsDamage}</b> per damage dealt.`],

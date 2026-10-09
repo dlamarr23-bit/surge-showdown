@@ -52,6 +52,7 @@ export class GameRoom extends DurableObject {
     for (const ws of this.sockets("p:" + pid)) this.send(ws, msg);
   }
   broadcast() {
+    this.updateBounty();
     this.save();
     if (this.bcastTimer) return;
     this.bcastTimer = setTimeout(() => {
@@ -79,12 +80,20 @@ export class GameRoom extends DurableObject {
     if (s.status === "lobby") return 1;
     const p = clamp(this.elapsedMs(now) / s.totalMs, 0, 1);
     const k = s.settings.surgeCurve, M = s.settings.surgeMax;
-    return 1 + (M - 1) * (Math.exp(k * p) - 1) / (Math.exp(k) - 1);
+    return (1 + (M - 1) * (Math.exp(k * p) - 1) / (Math.exp(k) - 1)) * (this.inShowdown(now) ? 2 : 1);
+  }
+  // ⚔️ Final showdown: the last minute of a game that is at least 2 minutes long
+  inShowdown(now = Date.now()) {
+    const s = this.s;
+    return !!(s.settings.showdown && (s.status === "running" || s.status === "paused") && s.totalMs >= 120000 && this.remainingMs(now) <= RULES.showdownSec * 1000);
   }
   async scheduleAlarm() {
     const s = this.s;
     if (s.status === "running") {
       let at = Date.now() + this.remainingMs() + 50;
+      const sdIn = this.remainingMs() - RULES.showdownSec * 1000;
+      if (s.settings.showdown && !s.sdOn && sdIn > 0) at = Math.min(at, Date.now() + sdIn + 50);
+      if (s.drop || s.settings.supplyDrops) at = Math.min(at, Date.now() + 10000); // supply drops appear / expire on time
       if (s.settings.demo) at = Math.min(at, Date.now() + 15000); // keeps pretend students moving
       await this.ctx.storage.setAlarm(at);
     } else await this.ctx.storage.setAlarm(Date.now() + 12 * 3600 * 1000); // cleanup
@@ -93,6 +102,7 @@ export class GameRoom extends DurableObject {
     if (!this.s) return;
     if (this.s.status === "running") {
       if (this.remainingMs() <= 0) { this.endGame("time"); await this.saveNow(); }
+      else if (this.events()) this.broadcast();
       this.ensureBotTimer();
       await this.scheduleAlarm();
       return;
@@ -240,6 +250,8 @@ export class GameRoom extends DurableObject {
       ...(isHost ? { removed: Object.values(s.players).filter((p) => p.kicked && !p.bot && !p.watch).map((p) => ({ id: p.id, name: p.name, team: p.team })) } : {}),
       totalMs: s.totalMs, elapsedBase: s.elapsedBase, runStartedAt: s.runStartedAt, serverNow: now,
       surge: this.surge(now), endReason: s.endReason, results: s.results,
+      bounty: s.bountyId ?? null, showdown: this.inShowdown(now), calls: (s.calls || []).slice(-8),
+      drop: s.drop ? { id: s.drop.id, prize: s.drop.prize, need: s.drop.need, prog: s.drop.prog, ends: s.drop.ends } : null,
     };
   }
 
@@ -283,7 +295,9 @@ export class GameRoom extends DurableObject {
           t.active = counts[t.id] > 0;
           t.maxHp = s.settings.hpMode === "flat" ? s.settings.hpAmount : s.settings.hpAmount * Math.max(1, counts[t.id]);
           t.hp = t.maxHp; t.shield = 0; t.alive = t.active; t.bonus = 0; t.kos = 0; t.fellAt = null;
+          t.revive = 0; t.revived = false; t.dangerAt = 0;
         }
+        s.drop = null; s.nextDrop = RULES.drop.firstSec * 1000; s.sdOn = false; s.bountyId = null; s.bountyCallAt = 0; s.calls = [];
         s.totalMs = Math.round(s.settings.durationMin * 60000);
         s.elapsedBase = 0; s.runStartedAt = Date.now(); s.status = "running";
         s.feed = []; this.feed("🚀 The battle has begun!", "sys");
@@ -353,7 +367,7 @@ export class GameRoom extends DurableObject {
       }
       case "rematch": {
         if (s.status !== "ended") return;
-        s.status = "lobby"; s.results = null; s.endReason = null; s.feed = [];
+        s.status = "lobby"; s.results = null; s.endReason = null; s.feed = []; s.drop = null; s.calls = []; s.bountyId = null; s.sdOn = false;
         s.totalMs = 0; s.elapsedBase = 0; s.runStartedAt = null;
         for (const [id, p] of Object.entries(s.players)) {
           if (p.kicked) { delete s.players[id]; continue; }
@@ -401,7 +415,7 @@ export class GameRoom extends DurableObject {
   }
 
   freshStats() {
-    return { energy: 0, points: 0, correct: 0, wrong: 0, streak: 0, best: 0, dmg: 0, heal: 0, upg: { gain: 0, streak: 0 }, order: [], cur: null, opts: null, lastAns: 0, lastPow: 0 };
+    return { energy: 0, points: 0, correct: 0, wrong: 0, streak: 0, best: 0, dmg: 0, heal: 0, upg: { gain: 0, streak: 0 }, order: [], cur: null, opts: null, lastAns: 0, lastPow: 0, gamble: false, gambleNext: 0, bountyE: 0 };
   }
 
   // ----- players -----
@@ -458,7 +472,7 @@ export class GameRoom extends DurableObject {
   }
 
   meMsg(p) {
-    return { t: "me", me: { id: p.id, name: p.name, team: p.team, energy: Math.floor(p.energy), points: Math.round(p.points), correct: p.correct, wrong: p.wrong, streak: p.streak, best: p.best, dmg: Math.round(p.dmg), heal: Math.round(p.heal), upg: p.upg } };
+    return { t: "me", me: { id: p.id, name: p.name, team: p.team, energy: Math.floor(p.energy), points: Math.round(p.points), correct: p.correct, wrong: p.wrong, streak: p.streak, best: p.best, dmg: Math.round(p.dmg), heal: Math.round(p.heal), upg: p.upg, gamble: !!p.gamble, gambleNext: p.gambleNext || 0 } };
   }
   sendMe(p, ws) {
     if (p.bot) return;
@@ -494,12 +508,139 @@ export class GameRoom extends DurableObject {
       const U = RULES.upgrades;
       gained = Math.round((U.gain.levels[p.upg.gain] + U.streak.levels[p.upg.streak] * Math.min(p.streak - 1, 10)) * s.settings.energyScale);
       p.energy += gained; p.points += s.settings.ptsCorrect;
+      if (p.streak >= 10 && p.streak % 5 === 0) this.callout(`🔥 ${this.who(p)} ${p.streak >= 20 ? "is UNSTOPPABLE:" : "is on"} a ${p.streak}-answer streak!`, "streak");
     } else {
       p.streak = 0; p.wrong++;
       gained = -Math.min(Math.floor(p.energy), s.settings.wrongPenalty);
       p.energy += gained;
     }
+    p.gres = p.gamble ? this.resolveGamble(p, ok) : null;
+    const t = s.teams[p.team];
+    // 🔄 Comeback: a fallen team answers its way back in (once per game)
+    if (t && t.active && !t.alive && s.settings.comeback > 0 && !t.revived && s.status === "running") {
+      t.revive = ok ? (t.revive || 0) + 1 : Math.max(0, (t.revive || 0) - 1);
+      if (t.revive >= s.settings.comeback) {
+        t.alive = true; t.revived = true; t.fellAt = null; t.shield = 0;
+        t.hp = Math.max(1, Math.round(t.maxHp * RULES.comebackHp));
+        this.feed(`🔄 ${t.icon} ${t.name} answered their way back! They return with ${Math.round(t.hp)} health`, "comeback");
+        this.callout(`🔄 ${t.icon} ${t.name} is BACK in the fight!`, "comeback");
+      }
+    }
+    // 📦 Supply drop: first team to N correct answers wins it
+    if (ok && s.drop && t && t.active) {
+      const d = s.drop;
+      d.prog[t.id] = (d.prog[t.id] || 0) + 1;
+      if (d.prog[t.id] >= d.need) this.claimDrop(t);
+    }
+    this.events();
     return gained;
+  }
+  who(p) { const t = this.s.teams[p.team]; return this.s.settings.feedNames ? `${p.name} (${t.icon} ${t.name})` : `A player on ${t.icon} ${t.name}`; }
+  callout(text, kind) {
+    const s = this.s;
+    (s.calls ||= []).push({ id: rid(6), text, kind, at: Date.now() });
+    if (s.calls.length > 12) s.calls.splice(0, s.calls.length - 12);
+  }
+  // heal, or (during the showdown, or when health is full) add shield instead
+  boostTeam(t, amt) {
+    const healed = this.inShowdown() ? 0 : this.heal(t, amt);
+    const rest = amt - healed, before = t.shield;
+    if (rest > 0.5) t.shield = Math.min(t.maxHp * 0.5, t.shield + rest);
+    return { heal: healed, shield: t.shield - before };
+  }
+  boostText(r) { return [r.heal >= 1 ? `+${Math.round(r.heal)} health` : "", r.shield >= 1 ? `+${Math.round(r.shield)} shield` : ""].filter(Boolean).join(" and ") || "nothing (already maxed)"; }
+
+  // 🎲 Double or Nothing
+  startGamble(p, now = Date.now()) {
+    const s = this.s, G = RULES.gamble, t = s.teams[p.team];
+    if (!s.settings.gamble) return "Double or Nothing is turned off.";
+    if (!t.alive) return "Your team has fallen. Double or Nothing needs a team that is still standing.";
+    if (p.gamble) return "You already have a bet on your next question!";
+    if (now < (p.gambleNext || 0)) return `Wait ${Math.ceil((p.gambleNext - now) / 1000)}s to bet again.`;
+    if (p.energy < G.cost) return "Not enough energy.";
+    p.energy -= G.cost; p.gamble = true; p.gambleNext = now + G.cooldownSec * 1000;
+    return null;
+  }
+  gambleAmt(p) { const s = this.s; return RULES.gamble.base * s.settings.powerScale * this.surge() * this.teamBoost(p.team); }
+  resolveGamble(p, ok) {
+    const s = this.s, t = s.teams[p.team];
+    p.gamble = false;
+    if (!t.alive) { p.energy += RULES.gamble.cost; return { refund: true }; }
+    const amt = this.gambleAmt(p);
+    if (ok) {
+      const r = this.boostTeam(t, amt);
+      this.feed(`🎲 ${this.who(p)} WON Double or Nothing: ${this.boostText(r)}!`, "gamble-win");
+      if (amt >= 100) this.callout(`🎲 ${this.who(p)} WON the bet!`, "gamble");
+      return { win: true, amt: Math.round(r.heal + r.shield) };
+    }
+    let left = amt;
+    const fromShield = Math.min(t.shield, left); t.shield -= fromShield; left -= fromShield;
+    const fromHp = Math.min(Math.max(0, t.hp - 1), left); t.hp -= fromHp; // never knocks your own team out
+    const lost = Math.round(fromShield + fromHp);
+    this.feed(`🎲 ${this.who(p)} lost Double or Nothing: −${lost}`, "gamble-lose");
+    return { win: false, amt: lost };
+  }
+
+  // 🎯 Bounty: the team in 1st place (while 2+ teams are standing)
+  updateBounty() {
+    const s = this.s;
+    if (!s || !s.settings.bounty || (s.status !== "running" && s.status !== "paused")) { if (s) s.bountyId = null; return; }
+    const alive = s.teams.filter((t) => t.active && t.alive);
+    let id = null;
+    if (alive.length >= 2) {
+      const r = alive.map((t) => [t.id, this.teamScore(t)]).sort((a, b) => b[1] - a[1]);
+      id = r[0][1] > r[1][1] ? r[0][0] : (alive.some((t) => t.id === s.bountyId) && r.find((x) => x[0] === s.bountyId)[1] === r[0][1] ? s.bountyId : r[0][0]);
+    }
+    if (id !== s.bountyId) {
+      s.bountyId = id;
+      if (id != null && Date.now() - (s.bountyCallAt || 0) > 45000) {
+        const t = s.teams[id]; s.bountyCallAt = Date.now();
+        this.callout(`🎯 Bounty on ${t.icon} ${t.name}! Hit them for bonus energy`, "bounty");
+      }
+    }
+  }
+
+  // timed events: showdown start, supply drops. Returns true if something changed.
+  events() {
+    const s = this.s;
+    if (s.status !== "running") return false;
+    let changed = false;
+    const sd = this.inShowdown();
+    if (sd && !s.sdOn) {
+      s.sdOn = true; changed = true;
+      this.feed("⚔️ FINAL SHOWDOWN! Surge is doubled and healing is off!", "showdown");
+      this.callout("⚔️ FINAL SHOWDOWN! Surge ×2 · No healing!", "showdown");
+    } else if (!sd && s.sdOn) s.sdOn = false; // the teacher added time
+    const el = this.elapsedMs(), D = RULES.drop;
+    if (s.drop && el >= s.drop.ends) { s.drop = null; changed = true; this.feed("📦 Nobody grabbed the supply drop in time. It's gone!", "sys"); }
+    if (!s.drop && s.settings.supplyDrops && s.nextDrop != null && el >= s.nextDrop) {
+      s.nextDrop = el + D.everySec * 1000;
+      if (this.remainingMs() > D.minLeftSec * 1000) {
+        const prize = ["heal", "shield", "energy"][Math.floor(Math.random() * 3)];
+        // bigger teams answer faster, so the target grows with team size (~2.5 correct answers per player)
+        const big = Math.max(1, ...s.teams.filter((t) => t.active).map((t) => this.teamSize(t.id)));
+        const need = Math.max(D.need, Math.round(big * D.perPlayer));
+        s.drop = { id: rid(6), prize, need, prog: {}, ends: el + D.expireSec * 1000 };
+        const label = { heal: "❤️ Big heal", shield: "🛡️ Mega shield", energy: "⚡ Energy for the whole team" }[prize];
+        this.feed(`📦 SUPPLY DROP! First team to ${need} correct answers wins: ${label}`, "drop");
+        this.callout(`📦 SUPPLY DROP! First team to ${need} correct answers wins ${label}`, "drop");
+        changed = true;
+      }
+    }
+    return changed;
+  }
+  claimDrop(t) {
+    const s = this.s, d = s.drop, D = RULES.drop;
+    s.drop = null;
+    let what;
+    if (d.prize === "energy" || !t.alive) {
+      const e = Math.round(D.energy * s.settings.energyScale);
+      for (const p of Object.values(s.players)) if (p.team === t.id && !p.kicked) { p.energy += e; this.sendMe(p); }
+      what = `+${e} ⚡ for every player`;
+    } else if (d.prize === "heal") what = this.boostText(this.boostTeam(t, t.maxHp * D.share));
+    else { const b = t.shield; t.shield = Math.min(t.maxHp * 0.5, t.shield + t.maxHp * D.share); what = `+${Math.round(t.shield - b)} shield`; }
+    this.feed(`📦 ${t.icon} ${t.name} grabbed the supply drop: ${what}!`, "drop");
+    this.callout(`📦 ${t.icon} ${t.name} grabbed the supply drop!`, "drop");
   }
   doUpgrade(p, key) {
     const U = RULES.upgrades[key]; if (!U) return "Unknown upgrade.";
@@ -517,22 +658,26 @@ export class GameRoom extends DurableObject {
     if (p.energy < P.cost) return "Not enough energy.";
     if (!mine.alive && P.target === "self") return "Your team has fallen — you can't heal or shield, but you can still attack!";
     if (!mine.alive && !s.settings.fallenCanAttack) return "Your team has fallen.";
+    if (key === "mend" && this.inShowdown(now)) return "No healing during the Final Showdown!";
     const amt = P.base * s.settings.powerScale * this.surge(now) * this.teamBoost(mine.id);
     const tag = s.settings.feedNames ? `${p.name} (${mine.icon} ${mine.name})` : `${mine.icon} ${mine.name}`;
     let msg = "";
+    p.bountyE = 0;
     if (P.target === "enemy") {
       const t = s.teams[Number(target)];
       if (!t || t.id === mine.id || !t.alive || !t.active) return "Pick a team that is still standing.";
       p.energy -= P.cost; p.lastPow = now;
       const dealt = this.damage(t, amt, p);
-      if (key === "siphon" && mine.alive) { const h = this.heal(mine, dealt); p.heal += h; }
+      if (key === "siphon" && mine.alive && !this.inShowdown(now)) { const h = this.heal(mine, dealt); p.heal += h; }
       msg = `${P.icon} ${tag} used ${P.name} on ${t.icon} ${t.name} for ${Math.round(dealt)}`;
+      if (p.bountyE) msg += ` 🎯 +${p.bountyE} bounty ⚡`;
     } else if (P.target === "all") {
       const targets = s.teams.filter((t) => t.alive && t.active && t.id !== mine.id);
       if (!targets.length) return "No teams left to hit.";
       p.energy -= P.cost; p.lastPow = now;
       for (const t of targets) this.damage(t, amt, p, true);
       msg = `${P.icon} ${tag} launched a Barrage hitting ${targets.length} teams for ${Math.round(amt)} each`;
+      if (p.bountyE) msg += ` 🎯 +${p.bountyE} bounty ⚡`;
     } else {
       p.energy -= P.cost; p.lastPow = now;
       if (key === "mend") { const h = this.heal(mine, amt); p.heal += h; msg = `${P.icon} ${tag} healed their team for ${Math.round(h)}`; }
@@ -566,9 +711,18 @@ export class GameRoom extends DurableObject {
         ok = Number.isInteger(pick) && p.opts && p.opts[pick] === 0;
       } else ok = norm(m.answer) === norm(q.ans[0].t) && norm(m.answer) !== "";
       const gained = this.applyAnswer(p, ok);
-      this.send(ws, { t: "result", correct: ok, gained, answer: q.ans[0].t, answerImg: q.ans[0].img || "", right, streak: p.streak });
+      this.send(ws, { t: "result", correct: ok, gained, answer: q.ans[0].t, answerImg: q.ans[0].img || "", right, streak: p.streak, gamble: p.gres });
       this.sendMe(p);
       this.nextQuestion(p);
+      this.broadcast();
+      return;
+    }
+    if (m.t === "gamble") {
+      if (s.status !== "running") return this.send(ws, { t: "error", msg: s.status === "paused" ? "Game is paused." : "Game is not running." });
+      const err = this.startGamble(p, now);
+      if (err) return this.send(ws, { t: "error", msg: err });
+      this.send(ws, { t: "toast", msg: "🎲 Bet placed! Your next answer decides it." });
+      this.sendMe(p);
       this.broadcast();
       return;
     }
@@ -586,6 +740,7 @@ export class GameRoom extends DurableObject {
       if (now - p.lastPow < 300) return;
       const err = this.doPower(p, m.key, m.target, now);
       if (err) return this.send(ws, { t: "error", msg: err });
+      if (p.bountyE) this.send(ws, { t: "toast", msg: `🎯 Bounty hit! +${p.bountyE} bonus energy` });
       this.sendMe(p);
       this.broadcast();
       return;
@@ -647,6 +802,7 @@ export class GameRoom extends DurableObject {
     // early on, invest in upgrades now and then
     if (p.upg.gain < 3 && p.energy >= U.gain.costs[p.upg.gain + 1] && Math.random() < 0.55) return this.doUpgrade(p, "gain");
     if (p.upg.streak < 2 && p.energy >= U.streak.costs[p.upg.streak + 1] && Math.random() < 0.25) return this.doUpgrade(p, "streak");
+    if (s.settings.gamble && mine.alive && !p.gamble && Math.random() < 0.12 && !this.startGamble(p, now)) return;
     const enemies = s.teams.filter((t) => t.active && t.alive && t.id !== p.team);
     const choices = [];
     if (enemies.length) { choices.push(["strike", 5], ["siphon", 2]); if (enemies.length > 1) choices.push(["barrage", 1]); }
@@ -671,12 +827,18 @@ export class GameRoom extends DurableObject {
     const hpHit = Math.min(t.hp, left); t.hp -= hpHit;
     const dealt = absorbed + hpHit;
     attacker.dmg += dealt; attacker.points += dealt * s.settings.ptsDamage;
+    if (s.settings.bounty && t.id === s.bountyId && dealt > 0) { const e = Math.round(dealt * RULES.bountyEnergy); attacker.energy += e; attacker.bountyE = (attacker.bountyE || 0) + e; }
     if (t.hp <= 0.0001 && t.alive) {
       t.hp = 0; t.shield = 0; t.alive = false; t.fellAt = Date.now();
       const at = s.teams[attacker.team];
       at.bonus += s.settings.koBonus; at.kos++;
       t.bonus -= s.settings.koPenalty || 0; // can push the team score below zero; players keep earning it back
+      this.callout(`💀 ${t.icon} ${t.name} has fallen!`, "ko");
       (this.pendingKO ||= []).push(`💀 ${t.icon} ${t.name} has fallen!${s.settings.koPenalty ? ` (−${s.settings.koPenalty} pts)` : ""} Final blow: ${s.settings.feedNames ? attacker.name + " of " : ""}${at.icon} ${at.name}`);
+    }
+    else if (t.alive && t.hp < t.maxHp * 0.25 && Date.now() - (t.dangerAt || 0) > 30000) {
+      t.dangerAt = Date.now();
+      this.callout(`⚠️ ${t.icon} ${t.name} is UNDER ATTACK and low on health!`, "danger");
     }
     return dealt;
   }

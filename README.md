@@ -50,6 +50,13 @@ Edit a file on GitHub and commit. Both the Worker and the Pages site redeploy au
 
 1. Open `/surge/host`. Every setting is a dropdown: game length, teams, theme, battle, surge and scoring.
    - **Knockout penalty** (under 🏆 Scoring): points a team loses when it gets knocked out. A team's score can drop below zero, and its players can still earn points back.
+   - **🎉 Special events** (each can be turned off in setup):
+     - **🎲 Double or Nothing:** a shop item (30 energy, once a minute). The student's next answer decides it: right gives their team health, wrong takes the same amount (it can never knock their own team out).
+     - **🎯 Bounty:** the team in 1st place gets a target. Hitting them earns bonus energy.
+     - **🔄 Comeback:** a fallen team that gets enough correct answers (wrong answers set them back 1) returns once with 30% health.
+     - **📦 Supply drops:** every 2 minutes a prize appears. The first team to reach the target of correct answers (about 2½ per player) wins a heal, a shield or energy for every player.
+     - **⚔️ Final showdown:** in the last minute (games of 2+ minutes), surge doubles and healing turns off.
+     - **📣 Announcer pop-ups:** big pop-ups on the teacher screen for 10+ streaks, teams in danger, knockouts, comebacks, bounties, drops and the showdown.
    - **How-to-play intro** (under 🎮 Game): when you click **Start game**, full-screen slides explain earning energy, the shop, attacking, protecting, health, the Surge and how to win, using your actual settings. The timer waits until the slides finish. Choose auto-advance, click-through, or no intro. **Skip intro** (or Esc) jumps straight to the game; ← → move between slides. Preview them any time with **📖 How to play** in the lobby.
 2. Add questions. The easiest way is the **Google Sheets template** (button on the host screen, or `question-template.xlsx`): one row per question, with optional picture links for the question and every answer. Share the sheet as "Anyone with the link → Viewer", paste the link, click **Import**. Or paste lines:
    ```

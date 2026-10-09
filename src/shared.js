@@ -23,6 +23,13 @@ export const RULES = {
     mend:    { name: "Mend",    icon: "💚", cost: 60,  base: 45, target: "self",  desc: "Heal your team." },
     shield:  { name: "Shield",  icon: "🛡️", cost: 70,  base: 50, target: "self",  desc: "Add a shield that absorbs damage." },
   },
+  // Special events (each one can be turned off in setup)
+  gamble: { name: "Double or Nothing", icon: "🎲", cost: 30, base: 60, cooldownSec: 60,
+    desc: "Bet on your next question. Right: your team gains health. Wrong: your team loses it (never knocks you out)." },
+  bountyEnergy: 0.5,                       // bonus energy per 1 damage dealt to the bounty team
+  comebackHp: 0.3,                         // a revived team comes back with this share of its max health
+  showdownSec: 60,                         // final showdown length (surge ×2, no healing)
+  drop: { need: 5, perPlayer: 2.5, firstSec: 90, everySec: 120, expireSec: 75, minLeftSec: 45, share: 0.35, energy: 100 },
 };
 
 export const DEFAULT_SETTINGS = {
@@ -50,6 +57,11 @@ export const DEFAULT_SETTINGS = {
   koPenalty: 0, // points the fallen team loses when knocked out (score can go negative)
   feedNames: true,
   demo: false,
+  gamble: true,      // 🎲 Double or Nothing in the shop
+  bounty: true,      // 🎯 bonus energy for hitting the team in 1st place
+  comeback: 10,      // 🔄 correct answers a fallen team needs to come back once (0 = off)
+  supplyDrops: true, // 📦 race to 5 correct answers for a prize
+  showdown: true,    // ⚔️ last minute: surge ×2, no healing
 };
 
 export const DEMO_COUNT = 40;
@@ -97,7 +109,7 @@ export function sanitizeSettings(input, prev = DEFAULT_SETTINGS) {
   s.surgeCurve = num(i.surgeCurve, s.surgeCurve, 0.5, 10);
   s.powerScale = num(i.powerScale, s.powerScale, 0.25, 5);
   s.energyScale = num(i.energyScale, s.energyScale, 0.25, 5);
-  for (const k of ["fallenCanAttack", "sizeBoost", "lastTeamEnds", "lateJoin", "feedNames", "demo"]) {
+  for (const k of ["fallenCanAttack", "sizeBoost", "lastTeamEnds", "lateJoin", "feedNames", "demo", "gamble", "bounty", "supplyDrops", "showdown"]) {
     if (typeof i[k] === "boolean") s[k] = i[k];
     else if (i[k] === "true" || i[k] === "false") s[k] = i[k] === "true";
   }
@@ -108,6 +120,7 @@ export function sanitizeSettings(input, prev = DEFAULT_SETTINGS) {
   s.survivalBonus = Math.round(num(i.survivalBonus, s.survivalBonus, 0, 100000));
   s.koBonus = Math.round(num(i.koBonus, s.koBonus, 0, 100000));
   s.koPenalty = Math.round(num(i.koPenalty, s.koPenalty, 0, 100000));
+  s.comeback = Math.round(num(i.comeback, s.comeback, 0, 100));
   return s;
 }
 

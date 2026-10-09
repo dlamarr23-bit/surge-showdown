@@ -142,10 +142,24 @@ function renderGame() {
   lastMyHp = hpNow;
   $("#energy").textContent = me.energy.toLocaleString();
   $("#fallenBanner").classList.toggle("hidden", t.alive);
-  if (!t.alive && !S.settings.fallenCanAttack) $("#fallenBanner").textContent = "💀 Your team has fallen! Keep answering to earn points for your team.";
+  if (!t.alive) {
+    const cb = S.settings.comeback > 0 && !t.revived ? ` 🔄 Comeback: ${t.revive || 0} / ${S.settings.comeback} correct answers to return!` : "";
+    $("#fallenBanner").textContent = (S.settings.fallenCanAttack ? "💀 Your team has fallen! Keep answering. You can still attack the other teams." : "💀 Your team has fallen! Keep answering to earn points for your team.") + cb;
+  }
+  // 📦 supply drop progress
+  const d = S.drop;
+  $("#dropStrip").classList.toggle("hidden", !d);
+  if (d) {
+    const label = { heal: "❤️ Big heal", shield: "🛡️ Mega shield", energy: "⚡ Energy for your whole team" }[d.prize], n = d.prog[t.id] || 0;
+    const lead = Math.max(0, ...Object.values(d.prog));
+    $("#dropStrip").innerHTML = `<span>📦 SUPPLY DROP: ${label}! Your team</span><div class="cb-bar"><i style="width:${(n / d.need) * 100}%"></i></div><b>${n}/${d.need}</b>${lead > n ? `<span class="muted" style="font-size:13px">Leader: ${lead}/${d.need}</span>` : ""}`;
+  }
+  // 🎲 bet on this question
+  $("#gambleBanner").classList.toggle("hidden", !me.gamble);
+  if (me.gamble) $("#gambleBanner").textContent = `🎲 DOUBLE OR NOTHING! Get this one right for about +${gambleAmt()} team health. Wrong costs the same.`;
   $("#pausedBanner").classList.toggle("hidden", S.status !== "paused");
   $("#streakTxt").innerHTML = me.streak > 1 ? `<span class="streak">🔥 ${me.streak} in a row</span>` : `✓ ${me.correct} correct`;
-  $("#miniTeams").innerHTML = S.teams.filter((x) => x.active).map((x) => `<div class="mini ${x.alive ? "" : "fallen"}" style="--tc:${x.color};${x.id === t.id ? "outline:2px solid " + x.color : ""}">${esc(x.icon)} ${esc(x.name)} <span class="muted" style="float:right">${x.score.toLocaleString()}</span>${hpBar(x)}</div>`).join("");
+  $("#miniTeams").innerHTML = S.teams.filter((x) => x.active).map((x) => `<div class="mini ${x.alive ? "" : "fallen"}" style="--tc:${x.color};${x.id === t.id ? "outline:2px solid " + x.color : ""}">${esc(x.icon)} ${esc(x.name)}${S.bounty === x.id ? ` <span class="tgt" title="Bounty: hit this team for bonus energy">🎯</span>` : ""} <span class="muted" style="float:right">${x.score.toLocaleString()}</span>${hpBar(x)}</div>`).join("");
   $("#ticker").innerHTML = S.feed.slice(-4).reverse().map((e) => `<div class="ev ${e.kind}">${esc(e.text)}</div>`).join("");
   if (!curQ && !locked) $("#qtext").textContent = S.status === "paused" ? "Paused" : "Loading…";
   buildShop(); updateShop();
@@ -180,22 +194,31 @@ function onResult(m) {
   const fb = $("#fb");
   if (m.correct) {
     fb.className = "feedback good"; fb.textContent = `Correct! +${m.gained} ⚡`;
+    if (m.gamble && m.gamble.win) { fb.textContent += ` 🎲 You WON the bet: +${m.gamble.amt} for your team!`; flash("#7c3aed"); }
     if (lastPick) lastPick.classList.add("right");
   } else {
     fb.className = "feedback bad"; fb.textContent = `Not quite${m.gained < 0 ? ` (${m.gained} ⚡)` : ""}`;
     document.querySelectorAll(".opt").forEach((b, i) => { if (i === m.right) b.classList.add("right"); else if (b === lastPick) b.classList.add("wrong"); });
     if (curQ && curQ.type === "text") fb.innerHTML = `Not quite. Answer: <span style="color:var(--ink)">${esc(m.answer)}</span>${imgTag(m.answerImg, "answer-img")}`;
+    if (m.gamble && m.gamble.win === false) fb.insertAdjacentHTML("beforeend", `<div style="font-size:20px">🎲 Lost the bet: −${m.gamble.amt} team health</div>`);
   }
   setTimeout(() => {
     locked = false;
     if (queuedQ) { curQ = queuedQ; queuedQ = null; renderQ(); }
-  }, m.correct ? 650 : 1700);
+  }, m.gamble ? 1800 : m.correct ? 650 : 1700);
 }
 
 // ---------- shop ----------
 function buildShop() {
   if (shopBuilt || !RULES) return; shopBuilt = true;
-  $("#powers").innerHTML = Object.entries(RULES.powers).map(([k, p]) => `
+  const G = RULES.gamble;
+  $("#powers").innerHTML = (S.settings.gamble && G ? `
+    <button class="item gamble-item" data-gamble="1">
+      <div class="it-top"><span class="it-ic">${G.icon}</span>${G.name}</div>
+      <div class="it-d">${G.desc}</div>
+      <div class="it-amt" id="gambleAmt"></div>
+      <div class="it-cost">⚡ ${G.cost}</div>
+    </button>` : "") + Object.entries(RULES.powers).map(([k, p]) => `
     <button class="item" data-power="${k}">
       <div class="it-top"><span class="it-ic">${p.icon}</span>${p.name}</div>
       <div class="it-d">${p.desc}</div>
@@ -215,17 +238,27 @@ function powerAmt(k) {
   const tm = timing(S, conn.offset);
   return Math.round(RULES.powers[k].base * S.settings.powerScale * tm.surge * (myTeam().boost || 1));
 }
+function gambleAmt() {
+  const tm = timing(S, conn.offset);
+  return Math.round(RULES.gamble.base * S.settings.powerScale * tm.surge * (myTeam().boost || 1));
+}
 function updateShop() {
   if (!shopBuilt || !me) return;
-  const t = myTeam(), running = S.status === "running";
+  const t = myTeam(), running = S.status === "running", sd = timing(S, conn.offset).showdown;
+  const gb = document.querySelector("[data-gamble]");
+  if (gb) {
+    const wait = Math.ceil(((me.gambleNext || 0) - (Date.now() + (conn.offset || 0))) / 1000);
+    gb.disabled = !running || !t.alive || me.gamble || wait > 0 || me.energy < RULES.gamble.cost;
+    $("#gambleAmt").textContent = !t.alive ? "Not available while fallen" : me.gamble ? "Bet placed! Answer your next question" : wait > 0 ? `Ready in ${wait}s` : `Win or lose ${gambleAmt()} health`;
+  }
   for (const [k, p] of Object.entries(RULES.powers)) {
     const el = document.querySelector(`[data-power="${k}"]`);
     const self = p.target === "self";
-    const blocked = (!t.alive && self) || (!t.alive && !S.settings.fallenCanAttack);
+    const blocked = (!t.alive && self) || (!t.alive && !S.settings.fallenCanAttack) || (sd && k === "mend");
     el.disabled = !running || me.energy < p.cost || blocked;
     const a = powerAmt(k);
-    document.querySelector(`[data-amt="${k}"]`).textContent = blocked ? (self ? "Not available while fallen" : "Fallen teams can't attack") :
-      k === "mend" ? `Heals ${a}` : k === "shield" ? `+${a} shield` : k === "barrage" ? `${a} damage to each team` : k === "siphon" ? `${a} damage + heal ${a}` : `${a} damage`;
+    document.querySelector(`[data-amt="${k}"]`).textContent = sd && k === "mend" ? "No healing in the Final Showdown!" : blocked ? (self ? "Not available while fallen" : "Fallen teams can't attack") :
+      k === "mend" ? `Heals ${a}` : k === "shield" ? `+${a} shield` : k === "barrage" ? `${a} damage to each team` : k === "siphon" ? (sd ? `${a} damage (no heal in showdown)` : `${a} damage + heal ${a}`) : `${a} damage`;
   }
   for (const [k, u] of Object.entries(RULES.upgrades)) {
     const lvl = me.upg[k], max = u.levels.length - 1, el = document.querySelector(`[data-upg="${k}"]`);
@@ -276,6 +309,7 @@ document.addEventListener("click", (e) => {
     tab = tb.dataset.tab; document.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("on", b === tb));
     $("#tabQ").classList.toggle("hidden", tab !== "q"); $("#tabShop").classList.toggle("hidden", tab !== "shop"); return;
   }
+  const gb = e.target.closest("[data-gamble]"); if (gb && !gb.disabled) { conn.send({ t: "gamble" }); return; }
   const pw = e.target.closest("[data-power]"); if (pw && !pw.disabled) { usePower(pw.dataset.power); return; }
   const up = e.target.closest("[data-upg]"); if (up && !up.disabled) { conn.send({ t: "upgrade", key: up.dataset.upg }); return; }
   const tg = e.target.closest("[data-target]"); if (tg) { conn.send({ t: "power", key: pendingPower, target: +tg.dataset.target }); $("#targetModal").classList.add("hidden"); return; }
@@ -294,6 +328,7 @@ setInterval(() => {
   $("#ptimer").style.color = tm.remaining < 30000 ? "var(--bad)" : "";
   $("#surgeX").textContent = "×" + tm.surge.toFixed(1);
   $("#surgeX").style.setProperty("--glow", Math.min(1, (tm.surge - 1) / Math.max(1, S.settings.surgeMax - 1)));
+  $("#sdStrip").classList.toggle("hidden", !tm.showdown);
   updateShop();
 }, 500);
 

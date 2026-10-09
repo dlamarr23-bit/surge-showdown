@@ -66,6 +66,12 @@
       </div>
 
       <div class="panel sect">
+        <h2>🎉 Special events</h2>
+        <p class="muted" style="margin-top:0">Extra twists that keep every team in the game. Turn off any you don't want.</p>
+        <div data-group="events"></div>
+      </div>
+
+      <div class="panel sect">
         <h2>🎵 Music</h2>
         <p class="muted" style="margin-top:0">Plays on this screen only (never on student Chromebooks). Change or mute it any time from the music bar.</p>
         <div class="srow"><div class="stxt"><b>Lobby music</b><span>Plays while students join. Stops when the game starts.</span></div>
@@ -159,6 +165,8 @@
 <section id="live" class="hidden">
   <div class="live">
     <div>
+      <div id="showdownBar" class="showdown-bar hidden">⚔️ FINAL SHOWDOWN · Surge ×2 · No healing</div>
+      <div id="dropBox" class="drop-box hidden"></div>
       <div class="battle" id="battle"></div>
       <div class="panel" style="margin-top:18px">
         <div class="row" style="margin-bottom:8px"><h2 style="font-size:22px">👥 Players</h2><div class="spacer"></div><span class="muted" style="font-size:13px">Click a column to sort</span></div>
@@ -219,6 +227,8 @@
   <iframe id="wpFrame" title="Player view"></iframe>
 </aside>
 <button id="wpShow" class="btn sm wp-show hidden">👀 Show player view</button>
+
+<div id="callouts" class="callouts" aria-live="polite"></div>
 
 <div id="joinModal" class="modal-bg hidden">
   <div class="modal" style="text-align:center;width:min(900px,100%)">

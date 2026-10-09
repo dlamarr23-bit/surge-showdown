@@ -4,6 +4,7 @@ const DEFAULTS = {
   durationMin: 10, hpAmount: 300, hpMode: "perPlayer", surgeMax: 5, surgeCurve: 4,
   powerScale: 1, energyScale: 1, fallenCanAttack: true, sizeBoost: true, lastTeamEnds: false, teamPick: "auto",
   lateJoin: true, wrongPenalty: 5, ptsCorrect: 10, ptsDamage: 1, survivalBonus: 300, koBonus: 200, koPenalty: 0, feedNames: true, demo: false, intro: "auto",
+  gamble: true, bounty: true, comeback: 10, supplyDrops: true, showdown: true, announcer: true,
 };
 // The Google Sheets question template ("Make a copy" link)
 const SHEET_TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1id9tjF6A5Ua9x3r4QxDGTu7DRMpviwWUOj8LGmud1eU/copy";
@@ -45,6 +46,12 @@ const SETTINGS = [
   { g: "scoring", k: "ptsDamage", label: "Points per 1 damage dealt", desc: "", opts: range([0, 0.25, 0.5, 1, 2, 3, 5], String) },
   { g: "scoring", k: "survivalBonus", label: "Survival bonus", desc: "For each team still standing at the end.", opts: range([0, 100, 200, 300, 500, 750, 1000, 2000], String) },
   { g: "scoring", k: "koBonus", label: "Knockout bonus", desc: "For the team that lands the final blow.", opts: range([0, 100, 200, 300, 500, 750, 1000, 2000], String) },
+  { g: "events", k: "gamble", label: "🎲 Double or Nothing", desc: "A shop item: bet on your next question. Right gives your team health, wrong takes it away (it can never knock your own team out).", opts: yesNo },
+  { g: "events", k: "bounty", label: "🎯 Bounty on the leader", desc: "The team in 1st place gets a target on it. Hitting them earns bonus energy.", opts: yesNo },
+  { g: "events", k: "comeback", label: "🔄 Comeback", desc: "A fallen team that gets this many correct answers (wrong answers set them back 1) returns with 30% health. Once per team.", opts: [[0, "Off"], [5, "5 correct"], [8, "8 correct"], [10, "10 correct"], [15, "15 correct"], [20, "20 correct"]] },
+  { g: "events", k: "supplyDrops", label: "📦 Supply drops", desc: "Every 2 minutes a prize appears. The first team to reach a target of correct answers (about 2½ per player) wins a heal, a shield or energy.", opts: yesNo },
+  { g: "events", k: "showdown", label: "⚔️ Final showdown", desc: "In the last minute, surge doubles and healing turns off. Games of 2+ minutes.", opts: yesNo },
+  { g: "events", k: "announcer", label: "📣 Announcer pop-ups", desc: "Big pop-ups on this screen for streaks, attacks, knockouts, comebacks and drops.", opts: yesNo },
   { g: "scoring", k: "koPenalty", label: "Knockout penalty", desc: "Points a team loses when it is knocked out. Its score can go below zero, and players can still earn points back.", opts: range([0, 100, 200, 300, 500, 750, 1000, 2000], (v) => v ? `−${v}` : "None") },
 ];
 const SPEC = Object.fromEntries(SETTINGS.map((x) => [x.k, x]));
@@ -169,7 +176,7 @@ function paintPowerInfo() {
   const sc = cfg.powerScale;
   $("#powerInfo").innerHTML = Object.values(RULES.powers).map((p) =>
     `${p.icon} <b style="color:var(--ink)">${p.name}</b> (${p.cost} energy): ${p.desc} Starts at <b style="color:var(--good)">${Math.round(p.base * sc)}</b>, ends at <b style="color:var(--accent)">${Math.round(p.base * sc * cfg.surgeMax)}</b>.`
-  ).join("<br>") + `<br><br>Upgrades: <b style="color:var(--ink)">Energy per Question</b> (10 → 160) and <b style="color:var(--ink)">Streak Bonus</b>. Fallen teams can't heal or shield${cfg.fallenCanAttack ? ", but they can still attack" : " and can't attack"}.${cfg.sizeBoost ? ` Smaller teams get a <b style="color:var(--ink)">size boost</b>: power-ups × (biggest team ÷ their team), so 3 players vs 4 means +33%.` : ""}`;
+  ).join("<br>") + `<br><br>Upgrades: <b style="color:var(--ink)">Energy per Question</b> (10 → 160) and <b style="color:var(--ink)">Streak Bonus</b>. Fallen teams can't heal or shield${cfg.fallenCanAttack ? ", but they can still attack" : " and can't attack"}.${cfg.gamble && RULES.gamble ? `<br>${RULES.gamble.icon} <b style="color:var(--ink)">${RULES.gamble.name}</b> (${RULES.gamble.cost} energy, once a minute): right answer = up to <b style="color:var(--good)">${Math.round(RULES.gamble.base * sc)}</b>–<b style="color:var(--accent)">${Math.round(RULES.gamble.base * sc * cfg.surgeMax * (cfg.showdown ? 2 : 1))}</b> health for your team, wrong = the same amount lost.` : ""}${cfg.sizeBoost ? ` Smaller teams get a <b style="color:var(--ink)">size boost</b>: power-ups × (biggest team ÷ their team), so 3 players vs 4 means +33%.` : ""}`;
 }
 function paintQuestions() {
   store.set("ss_lastQuestions", questions);
@@ -271,7 +278,7 @@ function render() {
   paintJoinBits(url);
   if (S.status === "ended") $("#joinModal").classList.add("hidden");
   if (S.status === "lobby") { show("lobby"); renderLobby(url); }
-  else if (S.status === "running" || S.status === "paused") { show("live"); renderLive(url); }
+  else if (S.status === "running" || S.status === "paused") { show("live"); renderLive(url); queueCallouts(); }
   else if (S.status === "ended") { show("results"); renderResults(lastStatus !== "ended"); }
   lastStatus = S.status;
 }
@@ -321,6 +328,7 @@ function renderLive(url) {
   $("#liveCode").textContent = S.code; $("#liveUrl").textContent = url;
   $("#removedLive").innerHTML = removedHTML();
   $("#pauseBtn").innerHTML = S.status === "paused" ? "▶ Resume" : "⏸ Pause";
+  renderDrop();
   const ranked = S.teams.filter((t) => t.active).slice().sort((a, b) => b.score - a.score);
   const rankOf = Object.fromEntries(ranked.map((t, i) => [t.id, i + 1]));
   $("#battle").innerHTML = S.teams.filter((t) => t.active).map((t) => {
@@ -328,10 +336,12 @@ function renderLive(url) {
     lastHp[t.id] = t.hp + t.shield;
     return `<div class="tcard ${t.alive ? "" : "dead"} ${wasHit ? "hit" : ""}" style="--tc:${t.color}">
       ${t.alive ? "" : `<div class="fallen-tag">FALLEN</div>`}
+      ${S.bounty === t.id ? `<div class="bounty-tag" title="Hit this team for bonus energy">🎯 BOUNTY</div>` : ""}
       <div class="tc-top"><div class="tc-icon">${esc(t.icon)}</div><div><div class="tc-name">${esc(t.name)}</div><div class="muted" style="font-size:13px;font-weight:600">#${rankOf[t.id]} · ${t.size} player${t.size === 1 ? "" : "s"}${boostTag(t)}</div></div>
         <div class="tc-score ${t.score < 0 ? "neg" : ""}">${t.score.toLocaleString()}<small>points</small></div></div>
       <div class="tc-hp">${hpBar(t)}</div>
-      <div class="tc-meta"><span>❤️ ${t.hp} / ${t.maxHp}${t.shield ? ` · 🛡️ ${t.shield}` : ""}</span><span>${t.kos ? `💀×${t.kos}` : ""}</span></div>
+      <div class="tc-meta"><span>❤️ ${t.hp} / ${t.maxHp}${t.shield ? ` · 🛡️ ${t.shield}` : ""}</span><span>${t.revived ? "🔄 " : ""}${t.kos ? `💀×${t.kos}` : ""}</span></div>
+      ${!t.alive && S.settings.comeback > 0 && !t.revived ? `<div class="tc-comeback"><span>🔄 Comeback ${t.revive || 0} / ${S.settings.comeback}</span><div class="cb-bar"><i style="width:${Math.min(100, ((t.revive || 0) / S.settings.comeback) * 100)}%"></i></div></div>` : ""}
       <div class="tc-players">${S.players.filter((p) => p.team === t.id).sort((a, b) => b.points - a.points).map((p) =>
         `<span class="tc-p ${p.online ? "" : "off"}" title="${esc(p.name)}: ${p.points} pts">${esc(p.name)}<b>${Math.round(p.points)}</b></span>`).join("") || `<span class="muted">No players</span>`}</div>
     </div>`;
@@ -339,6 +349,40 @@ function renderLive(url) {
   const feed = $("#feed");
   feed.innerHTML = S.feed.slice().reverse().map((e) => `<div class="ev ${e.kind}">${esc(e.text)}</div>`).join("");
   renderPlayers();
+}
+function renderDrop() {
+  const d = S.drop, box = $("#dropBox");
+  box.classList.toggle("hidden", !d);
+  if (!d) return;
+  const label = { heal: "❤️ Big heal", shield: "🛡️ Mega shield", energy: "⚡ Energy for the whole team" }[d.prize];
+  const teams = S.teams.filter((t) => t.active).map((t) => ({ t, n: d.prog[t.id] || 0 })).sort((a, b) => b.n - a.n);
+  box.innerHTML = `<div class="db-head"><span class="db-ic">📦</span><div><b>SUPPLY DROP!</b> First team to <b>${d.need} correct answers</b> wins <b>${label}</b></div><span class="db-left" id="dropLeft"></span></div>
+    <div class="db-teams">${teams.map(({ t, n }) => `<div class="db-t" style="--tc:${t.color}"><span>${esc(t.icon)} ${esc(t.name)}</span><div class="cb-bar"><i style="width:${(n / d.need) * 100}%"></i></div><b>${n}/${d.need}</b></div>`).join("")}</div>`;
+}
+// 📣 announcer pop-ups (this screen only)
+let seenCalls = null, callQ = [], callBusy = false;
+function queueCallouts() {
+  const calls = S.calls || [];
+  if (seenCalls == null) { seenCalls = new Set(calls.map((c) => c.id)); return; } // don't replay old ones after a reload
+  for (const c of calls) {
+    if (seenCalls.has(c.id)) continue;
+    seenCalls.add(c.id);
+    if (cfg.announcer !== false && S.status === "running" && Date.now() + (conn?.offset || 0) - c.at < 12000) callQ.push(c);
+  }
+  if (callQ.length > 4) callQ = callQ.filter((c) => ["showdown", "ko", "comeback", "drop"].includes(c.kind)).slice(-3).concat(callQ.slice(-1));
+  showNextCall();
+}
+function showNextCall() {
+  if (callBusy) return;
+  const now = Date.now() + (conn?.offset || 0);
+  while (callQ.length && now - callQ[0].at > 7000 && callQ[0].kind !== "showdown") callQ.shift(); // old news: skip it
+  if (!callQ.length) return;
+  const c = callQ.shift(); callBusy = true;
+  const el = document.createElement("div");
+  el.className = `callout c-${c.kind}`; el.textContent = c.text;
+  $("#callouts").appendChild(el);
+  const ms = c.kind === "showdown" ? 3600 : 2600;
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => { el.remove(); callBusy = false; showNextCall(); }, 350); }, ms);
 }
 const pickingMove = () => document.activeElement && document.activeElement.matches && document.activeElement.matches("select[data-move]");
 function renderPlayers() {
@@ -368,13 +412,16 @@ function renderResults(fresh) {
 
 // ---------- live ticker ----------
 setInterval(() => {
-  if (!S || !conn || (S.status !== "running" && S.status !== "paused")) return;
+  if (!S || !conn || (S.status !== "running" && S.status !== "paused")) { document.body.classList.remove("showdown"); return; }
   const tm = timing(S, conn.offset);
   $("#timer").textContent = fmtTime(tm.remaining);
   $("#timer").classList.toggle("low", tm.remaining < 30000 && S.status === "running");
   $("#surgeX").textContent = "×" + tm.surge.toFixed(1);
   $("#surgeX").style.setProperty("--glow", Math.min(1, (tm.surge - 1) / Math.max(1, S.settings.surgeMax - 1)));
-  $("#surgeFill").style.width = (S.settings.surgeMax > 1 ? ((tm.surge - 1) / (S.settings.surgeMax - 1)) * 100 : 0) + "%";
+  $("#surgeFill").style.width = Math.min(100, S.settings.surgeMax > 1 ? ((tm.surge - 1) / (S.settings.surgeMax - 1)) * 100 : tm.showdown ? 100 : 0) + "%";
+  document.body.classList.toggle("showdown", tm.showdown);
+  $("#showdownBar").classList.toggle("hidden", !tm.showdown);
+  if (S.drop && $("#dropLeft")) $("#dropLeft").textContent = fmtTime(Math.max(0, S.drop.ends - tm.elapsed)) + " left";
 }, 250);
 
 // ---------- events ----------

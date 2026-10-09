@@ -209,14 +209,18 @@ async function createOrSave() {
 }
 
 // ---------- CONNECTION ----------
+let connLabelT = null;
 function startConn() {
   if (conn) conn.close();
   conn = connect(`${BASE}/ws/${session.code}?role=host&key=${encodeURIComponent(session.hostKey)}`, {
     onMessage: onMsg,
+    queue: true, // teacher clicks made during a blip are sent once the connection is back
     onStatus: (st, e) => {
       const el = $("#conn");
-      el.textContent = st === "online" ? "● Live" : st === "connecting" ? "● Connecting…" : "● Reconnecting…";
-      el.style.color = st === "online" ? "var(--good)" : "var(--accent)";
+      // brief blips (under 3 s) are normal and harmless: the game keeps running on the server
+      if (st === "online") { clearTimeout(connLabelT); connLabelT = null; el.textContent = "● Live"; el.style.color = "var(--good)"; el.title = ""; }
+      else if (el.textContent !== "● Live" || st === "closed") { el.textContent = "● Connecting…"; el.style.color = "var(--accent)"; }
+      else if (!connLabelT) connLabelT = setTimeout(() => { el.textContent = "● Reconnecting…"; el.style.color = "var(--accent)"; el.title = "The game keeps running on the server. This screen will catch up as soon as it reconnects."; }, 3000);
       if (st === "offline" && e && (e.code === 1006 || e.code === 1002)) {
         // check if game still exists
         fetch(`${BASE}/api/exists/${session.code}`).then((r) => r.json()).then((j) => { if (!j.exists) { toast("That game no longer exists", "bad"); newGame(); } }).catch(() => {});

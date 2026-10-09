@@ -151,30 +151,59 @@ function questionsToText(qs) {
 const imgTag = (src, cls = "") => src ? `<img class="${cls}" src="${esc(src)}" alt="" referrerpolicy="no-referrer" loading="eager" onerror="this.style.display='none'">` : "";
 
 // ---- websocket with auto-reconnect ----
-function connect(path, { onOpen, onMessage, onStatus }) {
-  let ws, tries = 0, closedByUs = false, pingT;
+// Live connection with auto-reconnect.
+// - heartbeat: a ping every 15s; if nothing comes back for 35s the socket is treated as dead and reopened
+//   (school filters and sleeping Wi-Fi can leave a socket "open" but silent)
+// - first retry is almost instant; later retries back off up to 8s
+// - reconnects right away when the tab is shown again or the network comes back
+// - queue: true keeps messages sent while offline and sends them after reconnecting (teacher controls)
+function connect(path, { onOpen, onMessage, onStatus, queue = false }) {
+  let ws, tries = 0, closedByUs = false, pingT, retryT, lastMsg = Date.now();
+  const outbox = [];
   const api = {
-    send(o) { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(o)); return true; } return false; },
-    close() { closedByUs = true; clearInterval(pingT); ws && ws.close(); },
+    send(o) {
+      if (ws && ws.readyState === 1) { ws.send(JSON.stringify(o)); return true; }
+      if (queue && o.t !== "ping") { outbox.push(o); if (outbox.length > 50) outbox.shift(); }
+      return false;
+    },
+    close() { closedByUs = true; clearInterval(pingT); clearTimeout(retryT); ws && ws.close(); },
+    get online() { return !!ws && ws.readyState === 1; },
     offset: 0,
   };
   const open = () => {
+    clearTimeout(retryT);
+    if (closedByUs) return;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    ws = new WebSocket(`${proto}//${location.host}${path}`);
+    const sock = ws = new WebSocket(`${proto}//${location.host}${path}`);
     onStatus && onStatus("connecting");
-    ws.onopen = () => { tries = 0; onStatus && onStatus("online"); onOpen && onOpen(); clearInterval(pingT); pingT = setInterval(() => api.send({ t: "ping" }), 25000); };
-    ws.onmessage = (e) => {
+    sock.onopen = () => {
+      tries = 0; lastMsg = Date.now();
+      onStatus && onStatus("online"); onOpen && onOpen();
+      while (outbox.length && sock.readyState === 1) sock.send(JSON.stringify(outbox.shift()));
+      clearInterval(pingT);
+      pingT = setInterval(() => {
+        if (Date.now() - lastMsg > 35000) { try { sock.close(4001, "heartbeat"); } catch {} return; }
+        api.send({ t: "ping" });
+      }, 15000);
+    };
+    sock.onmessage = (e) => {
+      lastMsg = Date.now();
       let m; try { m = JSON.parse(e.data); } catch { return; }
       if (m.state && m.state.serverNow) api.offset = m.state.serverNow - Date.now();
       onMessage(m);
     };
-    ws.onclose = (e) => {
+    sock.onclose = (e) => {
+      if (sock !== ws) return; // an old socket we already replaced
       clearInterval(pingT);
       if (closedByUs || e.code === 4000) { onStatus && onStatus("closed", e); return; }
       onStatus && onStatus("offline", e);
-      tries++; setTimeout(open, Math.min(8000, 500 * 2 ** Math.min(tries, 4)));
+      tries++;
+      retryT = setTimeout(open, tries === 1 ? 300 : Math.min(8000, 500 * 2 ** Math.min(tries, 4)));
     };
   };
+  const wake = () => { if (!closedByUs && (!ws || ws.readyState > 1)) { tries = 0; open(); } };
+  window.addEventListener("online", wake);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") wake(); });
   open();
   return api;
 }

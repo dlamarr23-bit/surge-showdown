@@ -24,11 +24,13 @@ async function tryCode(c) {
     openConn();
   } catch { $("#joinErr").textContent = "Couldn't reach the game. Check your connection."; }
 }
+let reconT = null;
 function openConn() {
   if (conn) conn.close();
   conn = connect(`${BASE}/ws/${code}?role=player`, { onMessage: onMsg, onStatus: (st, e) => {
     if (st === "closed" && e && e.code === 4000) kicked();
-    if (st === "offline" && joinedOnce) toast("Reconnecting…");
+    if (st === "online") { clearTimeout(reconT); reconT = null; }
+    else if (st === "offline" && joinedOnce && !reconT) reconT = setTimeout(() => { reconT = null; if (!conn.online) toast("Reconnecting…"); }, 3000); // ignore quick blips
   } });
 }
 function sendJoin() {
@@ -186,8 +188,9 @@ let lastPick = null;
 function answer(val, btn) {
   if (locked || !curQ) return;
   if (S.status !== "running") return toast(S.status === "paused" ? "The game is paused" : "Game not running", "bad");
+  const sent = conn.send(curQ.type === "mc" ? { t: "answer", qid: curQ.id, pick: val } : { t: "answer", qid: curQ.id, answer: val });
+  if (!sent) return toast("Reconnecting… try that answer again in a second", "bad"); // nothing was lost
   locked = true; lastPick = btn || null;
-  conn.send(curQ.type === "mc" ? { t: "answer", qid: curQ.id, pick: val } : { t: "answer", qid: curQ.id, answer: val });
   setTimeout(() => { if (locked && !$("#fb").textContent) { locked = false; } }, 4000); // safety unlock
 }
 function onResult(m) {

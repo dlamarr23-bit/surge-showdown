@@ -12,7 +12,7 @@
   <div class="brand"><span class="bolt">⚡</span> <span id="brandTitle">Surge Showdown</span> <span class="pill">Host</span></div>
   <div class="spacer"></div>
   <div id="liveControls" class="row hidden">
-    <div class="surge" title="Power-up strength multiplier — grows exponentially as time runs out">
+    <div class="surge" title="Power-up strength multiplier. It grows exponentially as time runs out">
       <span class="muted">Surge</span><span class="x" id="surgeX">×1.0</span>
       <div class="surge-track"><div class="surge-fill" id="surgeFill" style="width:0"></div></div>
     </div>
@@ -25,7 +25,7 @@
   </div>
   <span class="pill" id="conn">●</span>
 </header>
-<div id="pausedBanner" class="paused-banner hidden">⏸ PAUSED — students can't answer or attack</div>
+<div id="pausedBanner" class="paused-banner hidden">⏸ PAUSED: students can't answer or attack</div>
 
 <!-- ===================== SETUP ===================== -->
 <section id="setup" class="hidden">
@@ -99,7 +99,16 @@
             <button class="btn sm primary" id="sheetBtn">Import</button>
           </div>
           <div class="muted" style="font-size:13px;margin-top:6px">Questions and answers can have pictures. Put an image link in the image columns of the template.</div>
+          <div id="sheetHelp" class="sheet-help hidden">
+            <b>The game couldn't open that sheet.</b> School Google accounts usually can't share with "Anyone with the link", so use copy and paste instead:
+            <ol>
+              <li>In your Google Sheet, click any cell, then press <kbd>Ctrl</kbd> + <kbd>A</kbd> and <kbd>Ctrl</kbd> + <kbd>C</kbd>.</li>
+              <li>Come back here, click in the big question box below, and press <kbd>Ctrl</kbd> + <kbd>V</kbd>.</li>
+            </ol>
+            <span class="muted" id="sheetWhy"></span>
+          </div>
         </div>
+        <div class="acct-box" id="acctBox"></div>
         <div class="row" style="margin:12px 0">
           <select id="savedSets" style="flex:1"></select>
           <button class="btn sm" id="loadSet">Load</button>
@@ -144,6 +153,7 @@
       <div>
         <div class="muted" style="font-weight:600">Game code</div>
         <div class="code" id="joinCode">------</div>
+        <button class="btn sm good copy-link" data-copylink title="Copy a link with the code already in it. Students only type their name.">🔗 Copy join link</button>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px">
         <div class="display" style="font-size:30px"><span id="playerCount">0</span> players</div>
@@ -181,7 +191,7 @@
       <div class="panel live-join">
         <div class="row" style="justify-content:space-between">
           <div><div class="muted" style="font-size:13px;font-weight:600">Join at <span id="liveUrl"></span></div><div class="live-code" id="liveCode"></div></div>
-          <button class="btn sm" id="addBtn2">Show big</button>
+          <div class="row" style="gap:6px"><button class="btn sm" data-copylink title="Copy a link with the code already in it. Students only type their name.">🔗 Copy link</button><button class="btn sm" id="addBtn2">Show big</button></div>
         </div>
         <div class="srow" style="padding:8px 0 0;border:0"><div class="stxt"><b>New students</b></div>
           <select id="lateJoinLive"><option value="true">Can join</option><option value="false">Locked</option></select></div>
@@ -237,11 +247,28 @@
     <div class="jm-url" id="jmUrl"></div>
     <div class="muted" style="font-weight:600;font-size:20px;margin-top:14px">Game code</div>
     <div class="jm-code" id="jmCode"></div>
+    <button class="btn good copy-link" data-copylink title="Copy a link with the code already in it. Students only type their name.">🔗 Copy join link</button>
     <div class="row" style="justify-content:center;margin-top:16px">
       <span class="muted">New students</span>
       <select id="lateJoinModal" style="width:auto"><option value="true">Can join</option><option value="false">Locked</option></select>
     </div>
     <p class="muted" id="jmNote" style="margin-bottom:0"></p>
+  </div>
+</div>
+
+<!-- Teacher account: sign in so saved sets show up on any computer -->
+<div id="acctModal" class="modal-bg hidden">
+  <div class="modal" style="width:min(460px,100%)">
+    <div class="row" style="margin-bottom:8px"><h2 id="amTitle" style="font-size:26px">Sign in</h2><div class="spacer"></div><button type="button" class="btn sm ghost" id="amClose">Cancel</button></div>
+    <p class="muted" id="amIntro" style="margin-top:0"></p>
+    <form id="amForm" autocomplete="on">
+      <div class="field"><label for="amUser">Username</label><input class="input" id="amUser" name="username" autocomplete="username" maxlength="60" placeholder="Your school email works well"></div>
+      <div class="field"><label for="amPass">Password</label><input class="input" id="amPass" name="password" type="password" autocomplete="current-password" maxlength="200"></div>
+      <div class="field hidden" id="amPass2Wrap"><label for="amPass2">Type the password again</label><input class="input" id="amPass2" type="password" autocomplete="new-password" maxlength="200"></div>
+      <div class="am-err" id="amErr" role="alert"></div>
+      <button type="submit" class="btn primary" style="width:100%" id="amGo">Sign in</button>
+    </form>
+    <p class="muted" style="text-align:center;margin-bottom:0" id="amSwitch"></p>
   </div>
 </div>
 

@@ -1,7 +1,8 @@
-// Surge Showdown — Cloudflare Worker + Durable Object game server
+// Surge Showdown: Cloudflare Worker + Durable Object game server
 import { DurableObject } from "cloudflare:workers";
 import { RULES, DEMO_COUNT, cleanName, rid, shuffle, clamp, norm, json, sanitizeSettings, sanitizeQuestions, questionsForHost } from "./shared.js";
 import { route } from "./router.js";
+export { Library } from "./library.js"; // teacher accounts (saved sets on every computer)
 
 const BOT_NAMES = ["Ava M.", "Liam R.", "Mia T.", "Noah G.", "Sofia L.", "Ethan P.", "Isabella C.", "Mason K.", "Zoe H.", "Lucas B.",
   "Chloe W.", "Elijah D.", "Aria S.", "James F.", "Layla N.", "Daniel V.", "Nora J.", "Mateo A.", "Lily E.", "Henry O.",
@@ -275,7 +276,7 @@ export class GameRoom extends DurableObject {
       }
       case "lateJoin":
         s.settings.lateJoin = !!m.on;
-        if (s.status !== "lobby") this.feed(m.on ? "🚪 Joining is open — new players can jump in" : "🔒 Joining is locked", "sys");
+        if (s.status !== "lobby") this.feed(m.on ? "🚪 Joining is open. New players can jump in" : "🔒 Joining is locked", "sys");
         break;
       case "demo":
         if (s.status === "ended") return;
@@ -656,7 +657,7 @@ export class GameRoom extends DurableObject {
     const P = RULES.powers[key]; if (!P) return "Unknown power-up.";
     const mine = s.teams[p.team];
     if (p.energy < P.cost) return "Not enough energy.";
-    if (!mine.alive && P.target === "self") return "Your team has fallen — you can't heal or shield, but you can still attack!";
+    if (!mine.alive && P.target === "self") return "Your team has fallen. You can't heal or shield, but you can still attack!";
     if (!mine.alive && !s.settings.fallenCanAttack) return "Your team has fallen.";
     if (key === "mend" && this.inShowdown(now)) return "No healing during the Final Showdown!";
     const amt = P.base * s.settings.powerScale * this.surge(now) * this.teamBoost(mine.id);

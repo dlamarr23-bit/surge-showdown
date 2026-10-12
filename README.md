@@ -58,17 +58,23 @@ Edit a file on GitHub and commit. Both the Worker and the Pages site redeploy au
      - **⚔️ Final showdown:** in the last minute (games of 2+ minutes), surge doubles and healing turns off.
      - **📣 Announcer pop-ups:** big pop-ups on the teacher screen for 10+ streaks, teams in danger, knockouts, comebacks, bounties, drops and the showdown.
    - **How-to-play intro** (under 🎮 Game): when you click **Start game**, full-screen slides explain earning energy, the shop, attacking, protecting, health, the Surge and how to win, using your actual settings. The timer waits until the slides finish. Choose auto-advance, click-through, or no intro. **Skip intro** (or Esc) jumps straight to the game; ← → move between slides. Preview them any time with **📖 How to play** in the lobby.
-2. Add questions. The easiest way is the **Google Sheets template** (button on the host screen, or `question-template.xlsx`): one row per question, with optional picture links for the question and every answer. Share the sheet as "Anyone with the link → Viewer", paste the link, click **Import**. Or paste lines:
+2. Add questions. The easiest way is the **Google Sheets template** (button on the host screen, or `question-template.xlsx`): one row per question, with optional picture links for the question and every answer. Paste the sheet's link and click **Import**.
+   - If the sheet is shared "Anyone with the link → Viewer", the game server reads it.
+   - School Google accounts often can't share outside the district. Then the host page reads the sheet using the Google account signed in to that browser.
+   - If neither works, the host page shows the copy and paste steps: in the sheet press Ctrl+A, Ctrl+C, then click in the question box and press Ctrl+V.
+
+   Or paste lines:
    ```
    Question | Correct answer | Wrong | Wrong | Wrong
    Who proposed continental drift? | Alfred Wegener
    ```
    - You can paste straight from **Google Sheets** (columns: question, correct, wrong, wrong, wrong) or import a **Gimkit CSV export**.
    - A line with only a correct answer becomes a **type-the-answer** question. Typed answers aren't case-sensitive.
-   - Click **💾 Save set** to keep a set in this browser for next time.
+   - Click **💾 Save set** to keep a set for next time. Signed out, sets are saved in this browser only.
+   - **☁️ Sign in** (above the saved sets) to keep your sets on any computer. The first time, click **Create an account** and pick a username (your email works) and a password. Any sets already saved on that computer are copied into the account. There is no password reset, so write the password down. Accounts live in the `Library` Durable Object (`src/library.js`).
    - Add a picture to any part with `[img: https://link-to-picture]`. Google Drive links work if the file is shared.
 3. Optional: tick **Demo mode: 40 pretend students** to watch a full game by yourself. Pretend students join, answer (some right, some wrong), shop and attack. Real students can still join. You can turn them on or off from the lobby or during the game. In demo mode the host screen splits in two: your projected screen on the left and one player's Chromebook view ("Teacher View") on the right. Set it to **Autoplay on** to watch, or **I'll play** to answer yourself. Click ✕ to hide it.
-4. Click **Create game**, project the screen, and students join with the code.
+4. Click **Create game**, project the screen, and students join with the code. Or click **🔗 Copy join link** and post it in Google Classroom: the link has the code built in, so students only type their name. The same button is in the game sidebar and the **➕ Add students** pop-up.
 4. In the lobby you can move students between teams, shuffle the teams, or remove a student. Then click **Start**.
 5. During the game: **Pause/Resume**, **+1 min / −1 min**, **End game**, move players, and **add or drop students any time**:
    - **➕ Add students** shows the join code full screen. New students go to the smallest team still standing, and that team gets extra health.
@@ -101,7 +107,8 @@ All of these numbers can be changed in the host setup screen.
 ## Files
 ```
 src/worker.js        Game server (Cloudflare Worker + Durable Object, incl. demo-mode pretend students)
-src/router.js        API routes (create game, websockets, Google Sheets import)
+src/router.js        API routes (create game, websockets, Google Sheets import, teacher accounts)
+src/library.js       Teacher accounts: saved question sets on every computer (Durable Object)
 src/shared.js        Game rules, settings and question checks
 pages/               Cloudflare Pages project (functions/ forwards /surge/api + /surge/ws to the Worker)
 public/surge/question-template.xlsx   Question template with picture columns

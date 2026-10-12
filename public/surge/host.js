@@ -98,18 +98,30 @@ function initSetup() {
   $("#templateLink").href = SHEET_TEMPLATE_URL;
   $("#sheetBtn").onclick = importSheet;
   $("#sheetUrl").onkeydown = (e) => { if (e.key === "Enter") importSheet(); };
-  $("#saveSet").onclick = () => {
+  $("#saveSet").onclick = async () => {
     const name = $("#setName").value.trim(); if (!name) return toast("Give the set a name first", "bad");
     if (!questions.length) return toast("No questions to save", "bad");
-    const sets = store.get("ss_sets", {}); sets[name] = questions; store.set("ss_sets", sets); paintSets(name); toast(`Saved “${name}”`, "good");
+    if (acct) { // signed in: save to the account so it shows up on every computer
+      $("#saveSet").disabled = true;
+      try { const j = await acctCall("save", { name, questions }); cloudSets[j.name] = j.questions; keepCloud(); paintSets(j.name); toast(`Saved “${j.name}” to your account`, "good"); }
+      catch (e) { acctError(e); }
+      $("#saveSet").disabled = false; return;
+    }
+    const sets = store.get("ss_sets", {}); sets[name] = questions; store.set("ss_sets", sets); paintSets(name); toast(`Saved “${name}” on this computer`, "good");
   };
   $("#loadSet").onclick = () => {
-    const name = $("#savedSets").value; const sets = store.get("ss_sets", {});
+    const name = $("#savedSets").value; const sets = mySets();
     if (!sets[name]) return; questions = sets[name]; $("#qtext").value = questionsToText(questions); $("#setName").value = name; paintQuestions();
   };
-  $("#delSet").onclick = () => {
-    const name = $("#savedSets").value; const sets = store.get("ss_sets", {});
-    if (!sets[name] || !confirm(`Delete the saved set “${name}”?`)) return; delete sets[name]; store.set("ss_sets", sets); paintSets();
+  $("#delSet").onclick = async () => {
+    const name = $("#savedSets").value; const sets = mySets();
+    if (!sets[name] || !confirm(`Delete the saved set “${name}”${acct ? " from your account" : ""}?`)) return;
+    if (acct) {
+      try { await acctCall("delete", { name }); delete cloudSets[name]; keepCloud(); paintSets(); }
+      catch (e) { acctError(e); }
+      return;
+    }
+    delete sets[name]; store.set("ss_sets", sets); paintSets();
   };
   $("#createBtn").onclick = createOrSave;
   $("#cancelEdit").onclick = () => { editing = false; render(); };
@@ -119,11 +131,24 @@ function initSetup() {
 async function importSheet() {
   const link = $("#sheetUrl").value.trim();
   if (!/docs\.google\.com\/spreadsheets\/d\//.test(link)) return toast("Paste a Google Sheets link first", "bad");
-  $("#sheetBtn").disabled = true; $("#sheetBtn").textContent = "Importing…";
+  $("#sheetBtn").disabled = true; $("#sheetBtn").textContent = "Importing…"; $("#sheetHelp").classList.add("hidden");
   try {
-    const r = await fetch(`${BASE}/api/sheet?url=${encodeURIComponent(link)}`);
-    if (!r.ok) { let msg = "Couldn't open that sheet."; try { msg = (await r.json()).error || msg; } catch {} throw new Error(msg); }
-    const qs = rowsToQuestions(parseCSV(await r.text()));
+    let rows = null, why = "", isPrivate = true;
+    try {
+      const r = await fetch(`${BASE}/api/sheet?url=${encodeURIComponent(link)}`);
+      if (r.ok) rows = parseCSV(await r.text());
+      else { why = (await r.json().catch(() => ({}))).error || ""; isPrivate = !/Excel file|doesn't look/.test(why); }
+    } catch {}
+    // School Google accounts usually can't share "Anyone with the link", so the server can't see the sheet.
+    // Try again from this browser, which is signed in to the teacher's Google account.
+    if (!rows && isPrivate) rows = await sheetViaBrowser(link);
+    if (!rows) {
+      if (!isPrivate) throw new Error(why || "Couldn't open that sheet.");
+      $("#sheetWhy").textContent = "Or share the sheet as \"Anyone with the link\" (Viewer) if your school allows it, then click Import again.";
+      $("#sheetHelp").classList.remove("hidden");
+      throw new Error("Couldn't open that sheet. See the steps under the link box.");
+    }
+    const qs = rowsToQuestions(rows);
     if (!qs.length) throw new Error("No questions found. Check that the first tab has the template's header row.");
     questions = qs; $("#qtext").value = questionsToText(qs); paintQuestions();
     if (!$("#setName").value) $("#setName").value = "Google Sheet set";
@@ -131,6 +156,27 @@ async function importSheet() {
   } catch (e) { toast(e.message, "bad"); }
   $("#sheetBtn").disabled = false; $("#sheetBtn").textContent = "Import";
 }
+// Reads a sheet with the Google account signed in to this browser (works for sheets shared only inside a school).
+// Uses Google's chart-data feed as a script tag, which sends the teacher's Google sign-in along with it.
+function sheetViaBrowser(link) {
+  const id = (link.match(/\/spreadsheets\/d\/([\w-]{20,})/) || [])[1];
+  if (!id || id === "e") return Promise.resolve(null);
+  const gid = (link.match(/[#&?]gid=(\d+)/) || [])[1];
+  const once = (authuser) => new Promise((resolve) => {
+    const cb = "__ssSheet" + Math.random().toString(36).slice(2), s = document.createElement("script");
+    const done = (v) => { clearTimeout(t); delete window[cb]; s.remove(); resolve(v); };
+    const t = setTimeout(() => done(null), 7000);
+    window[cb] = (res) => done(res && res.status !== "error" && res.table ? gvizRows(res.table) : null);
+    s.onerror = () => done(null);
+    s.src = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:json;responseHandler:${cb}&headers=0${gid ? "&gid=" + gid : ""}${authuser ? "&authuser=" + authuser : ""}`;
+    document.head.appendChild(s);
+  });
+  return (async () => { // try each Google account signed in to this browser
+    for (const u of [0, 1, 2]) { const rows = await once(u); if (rows) return rows; }
+    return null;
+  })();
+}
+const gvizRows = (table) => (table.rows || []).map((r) => (r.c || []).map((c) => (c == null ? "" : String(c.f ?? c.v ?? ""))));
 function persist() { store.set("ss_settings", cfg); }
 function paintSetup() {
   $("#title").value = cfg.title;
@@ -185,9 +231,94 @@ function paintQuestions() {
   $("#qpreview").innerHTML = questions.slice(0, 200).map((q, i) => `<div class="qi">${i + 1}. ${part(q.q, q.img)}<br><b>✓ ${part(q.correct, q.cImg)}</b> ${q.wrong.length ? `<span class="w">✗ ${q.wrong.map((w, k) => part(w, (q.wImg || [])[k])).join(" · ")}</span>` : `<span class="w">(type the answer)</span>`}</div>`).join("") || `<div class="qi muted">Paste questions above, import a Google Sheet, or load the sample set.</div>`;
 }
 function paintSets(sel) {
-  const sets = store.get("ss_sets", {}); const names = Object.keys(sets);
-  $("#savedSets").innerHTML = names.length ? names.map((n) => `<option ${n === sel ? "selected" : ""}>${esc(n)}</option>`).join("") : `<option value="">No saved sets yet</option>`;
+  const sets = mySets(); const names = Object.keys(sets).sort((a, b) => a.localeCompare(b));
+  $("#savedSets").innerHTML = names.length ? names.map((n) => `<option ${n === sel ? "selected" : ""}>${esc(n)}</option>`).join("") : `<option value="">${acct ? "No sets in your account yet" : "No saved sets yet"}</option>`;
 }
+
+// ---------- TEACHER ACCOUNT (saved sets on every computer) ----------
+// Signed out: sets are saved in this browser only. Signed in: sets are saved to the account on the game server.
+let acct = store.get("ss_acct", null);              // { user, token }
+let cloudSets = store.get("ss_cloudSets", {}) || {}; // { set name: questions }, copy of the account's sets
+let acctMode = "login";
+const mySets = () => (acct ? cloudSets : store.get("ss_sets", {}));
+const keepCloud = () => store.set("ss_cloudSets", cloudSets);
+const setsFrom = (list) => Object.fromEntries((list || []).map((s) => [s.name, s.questions]));
+async function acctCall(action, extra = {}, who = acct) {
+  let r, j = {};
+  try { r = await fetch(BASE + "/api/account", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, user: who?.user, token: who?.token, ...extra }) }); }
+  catch { throw new Error("Couldn't reach the game server. Check your internet and try again."); }
+  try { j = await r.json(); } catch {}
+  if (!r.ok) { const e = new Error(j.error || "Something went wrong. Try again."); e.signedOut = !!j.signedOut; throw e; }
+  return j;
+}
+function acctError(e) {
+  if (e.signedOut) { signOutHere(); openAcct("login"); }
+  toast(e.message, "bad");
+}
+function paintAcct() {
+  $("#acctBox").innerHTML = acct
+    ? `<div class="row"><span class="ic">☁️</span><span>Signed in as <b>${esc(acct.user)}</b>. Your saved sets show up on any computer you sign in on.</span><div class="spacer"></div><button class="btn sm ghost" id="acctOut">Sign out</button></div>`
+    : `<div class="row"><span class="ic">☁️</span><span><b>Use your sets on any computer.</b> Sign in and your saved sets go with you. Right now they only live on this computer.</span><div class="spacer"></div><button class="btn sm good" id="acctIn">Sign in</button></div>`;
+}
+function openAcct(mode) {
+  acctMode = mode;
+  const create = mode === "create";
+  $("#amTitle").textContent = create ? "Create an account" : "Sign in";
+  $("#amIntro").textContent = create
+    ? "Pick a username and password. Write them down: there is no password reset. Any sets saved on this computer are copied into your new account."
+    : "Your saved question sets will show up on any computer you sign in on.";
+  $("#amPass2Wrap").classList.toggle("hidden", !create);
+  $("#amPass").autocomplete = create ? "new-password" : "current-password";
+  $("#amGo").textContent = create ? "Create account" : "Sign in";
+  $("#amSwitch").innerHTML = create ? `Already have an account? <a href="#" data-am="login">Sign in</a>` : `First time? <a href="#" data-am="create">Create an account</a>`;
+  $("#amErr").textContent = ""; $("#amPass").value = ""; $("#amPass2").value = "";
+  $("#acctModal").classList.remove("hidden");
+  setTimeout(() => ($("#amUser").value ? $("#amPass") : $("#amUser")).focus(), 50);
+}
+async function submitAcct(e) {
+  e.preventDefault();
+  const user = $("#amUser").value.trim(), password = $("#amPass").value, create = acctMode === "create";
+  if (!user) return void ($("#amErr").textContent = "Type a username.");
+  if (!password) return void ($("#amErr").textContent = "Type a password.");
+  if (create && password !== $("#amPass2").value) return void ($("#amErr").textContent = "The two passwords don't match.");
+  $("#amGo").disabled = true; $("#amErr").textContent = "";
+  try {
+    const j = await acctCall(create ? "create" : "login", { password }, { user });
+    acct = { user: j.user, token: j.token }; store.set("ss_acct", acct);
+    cloudSets = setsFrom(j.sets); keepCloud();
+    $("#acctModal").classList.add("hidden");
+    // copy sets saved on this computer into the account (names the account already has are skipped)
+    const local = store.get("ss_sets", {});
+    let added = 0;
+    if (Object.keys(local).some((n) => !cloudSets[n])) {
+      try { const m = await acctCall("merge", { sets: local }); added = m.added; cloudSets = setsFrom(m.sets); keepCloud(); } catch {}
+    }
+    paintAcct(); paintSets();
+    toast(create ? "Account created" : `Signed in as ${acct.user}`, "good");
+    if (added) setTimeout(() => toast(`Copied ${added} set${added === 1 ? "" : "s"} from this computer into your account`, "good"), 600);
+  } catch (err) { $("#amErr").textContent = err.message; }
+  $("#amGo").disabled = false;
+}
+function signOutHere() {
+  acct = null; cloudSets = {}; store.del("ss_acct"); store.del("ss_cloudSets");
+  paintAcct(); paintSets();
+}
+async function refreshAcct() { // pick up sets saved on other computers
+  if (!acct) return;
+  try { const j = await acctCall("sets"); cloudSets = setsFrom(j.sets); keepCloud(); paintSets($("#savedSets").value); }
+  catch (e) { if (e.signedOut) { signOutHere(); toast("Please sign in again to see your saved sets", "bad"); } }
+}
+$("#acctBox").addEventListener("click", async (e) => {
+  if (e.target.id === "acctIn") openAcct("login");
+  if (e.target.id === "acctOut" && confirm("Sign out on this computer? Your sets stay safe in your account.")) {
+    acctCall("logout").catch(() => {});
+    signOutHere(); toast("Signed out");
+  }
+});
+$("#amForm").addEventListener("submit", submitAcct);
+$("#amClose").onclick = () => $("#acctModal").classList.add("hidden");
+$("#amSwitch").onclick = (e) => { const a = e.target.closest("[data-am]"); if (a) { e.preventDefault(); openAcct(a.dataset.am); } };
+window.addEventListener("focus", () => { if (acct && !S) refreshAcct(); });
 function settingsPayload() { return { ...cfg, teams: cfg.teams }; }
 
 async function createOrSave() {
@@ -434,7 +565,23 @@ document.addEventListener("click", (e) => {
   if (k) { const p = S.players.find((x) => x.id === k.dataset.kick); if (p && (p.bot || confirm(`Remove ${p.name} from the game? You can let them back in later.`))) conn.send({ t: "kick", pid: p.id }); }
   const ra = e.target.closest("[data-readmit]"); if (ra) conn.send({ t: "readmit", pid: ra.dataset.readmit });
   const th = e.target.closest("th[data-sort]"); if (th) { sortKey = th.dataset.sort; renderPlayers(); }
+  const cl = e.target.closest("[data-copylink]"); if (cl && S) copyJoinLink(cl);
 });
+// 🔗 a link with the code already in it, so students only type their name
+async function copyJoinLink(btn) {
+  const link = `${location.origin}${BASE}/?code=${S.code}`;
+  let ok = false;
+  try { await navigator.clipboard.writeText(link); ok = true; }
+  catch {
+    const ta = document.createElement("textarea"); ta.value = link; ta.style.cssText = "position:fixed;opacity:0"; document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand("copy"); } catch {}
+    ta.remove();
+  }
+  if (!ok) { prompt("Copy this link and share it with students:", link); return; }
+  toast("Join link copied. Paste it in Google Classroom. Students only type their name.", "good");
+  btn.dataset.label = btn.dataset.label || btn.textContent;
+  btn.textContent = "✓ Copied!"; clearTimeout(btn._t); btn._t = setTimeout(() => (btn.textContent = btn.dataset.label), 2000);
+}
 document.addEventListener("change", (e) => { const m = e.target.closest && e.target.closest("select[data-move]"); if (m) conn.send({ t: "move", pid: m.dataset.move, team: Number(m.value) }); });
 $("#startBtn").onclick = () => {
   const go = () => { if (S && S.status === "lobby") conn.send({ t: "start" }); };
@@ -462,5 +609,6 @@ $("#demoLive").onchange = (e) => conn.send({ t: "demo", on: e.target.value === "
 
 // ---------- boot ----------
 initSetup();
+paintAcct(); refreshAcct();
 fetch(BASE + "/api/rules").then((r) => r.json()).then((r) => { RULES = r; paintPowerInfo(); }).catch(() => {});
 if (session) startConn(); else render();

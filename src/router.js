@@ -42,15 +42,19 @@ export async function route(request, env) {
     return stub.fetch("https://do/exists");
   }
 
-  // Teacher accounts: saved sets that show up on any computer (one Durable Object per username)
-  if (path === "/api/account" && request.method === "POST") {
-    if (!env.LIB) return json({ error: "Server setup isn't finished: the LIB Durable Object binding is missing." }, 500);
+  // Teacher accounts: saved sets that show up on any computer (one Durable Object per username).
+  // The teacher's other tools (like the Classroom Group Maker on its own address) use the same
+  // account, so any site may call this. It is safe: sign-in travels in the request body, never in cookies.
+  if (path === "/api/account") {
+    if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
+    if (request.method !== "POST") return cors(json({ error: "Not found" }, 404));
+    if (!env.LIB) return cors(json({ error: "Server setup isn't finished: the LIB Durable Object binding is missing." }, 500));
     let body = {};
     try { body = await request.json(); } catch {}
     const key = userKey(body.user);
-    if (!validUser(key)) return json({ error: "Usernames are 3 to 60 letters or numbers, with no spaces. Dots, dashes and @ are OK, so your email works." }, 400);
+    if (!validUser(key)) return cors(json({ error: "Usernames are 3 to 60 letters or numbers, with no spaces. Dots, dashes and @ are OK, so your email works." }, 400));
     const stub = env.LIB.get(env.LIB.idFromName("acct:" + key));
-    return stub.fetch("https://lib/", { method: "POST", body: JSON.stringify({ ...body, display: body.user, user: key }) });
+    return cors(await stub.fetch("https://lib/", { method: "POST", body: JSON.stringify({ ...body, display: body.user, user: key }) }));
   }
 
   // Import a Google Sheet (shared "Anyone with the link can view", or File → Share → Publish to web) as CSV.
@@ -77,4 +81,13 @@ export async function route(request, env) {
   }
 
   return json({ error: "Not found" }, 404);
+}
+
+function cors(res) {
+  const h = new Headers(res.headers);
+  h.set("access-control-allow-origin", "*");
+  h.set("access-control-allow-methods", "POST, OPTIONS");
+  h.set("access-control-allow-headers", "content-type");
+  h.set("access-control-max-age", "86400");
+  return new Response(res.body, { status: res.status, headers: h });
 }

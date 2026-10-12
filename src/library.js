@@ -102,6 +102,59 @@ export class Library {
       return json({ ok: true });
     }
 
+    // ----- Data for the teacher's other tools (like the Classroom Group Maker), kept with the same account -----
+    // app:<app>          { data, rev, at }   the tool's saved state (rev goes up by 1 on every save)
+    // file:<app>:<id>    "data:image/..."    pictures, kept one per key because they are big
+    // files:<app>        [id, ...]           which pictures are saved
+    if (/^(appGet|appPut|fileGet|filePut|fileDel)$/.test(b.action)) {
+      const app = String(b.app || "");
+      if (!/^[a-z0-9-]{1,30}$/.test(app)) return json({ error: "Unknown tool." }, 400);
+      const doc = (await this.storage.get("app:" + app)) || { data: null, rev: 0, at: 0 };
+      const idxKey = "files:" + app, fileKey = (id) => `file:${app}:${id}`;
+      const fileIds = async () => (await this.storage.get(idxKey)) || [];
+      const current = async () => ({ data: doc.data, rev: doc.rev, at: doc.at, files: await fileIds() });
+
+      if (b.action === "appGet") {
+        if (Number(b.have) === doc.rev && doc.rev > 0) return json({ same: true, rev: doc.rev });
+        return json(await current());
+      }
+      if (b.action === "appPut") {
+        // Someone saved from another computer since this one last loaded: send back the newer copy instead.
+        if (!b.force && Number(b.base) !== doc.rev) return json({ conflict: true, ...(await current()) }, 409);
+        const text = JSON.stringify(b.data ?? null);
+        if (text.length > 1_500_000) return json({ error: "That is too much to save online. Remove some classes or photos." }, 400);
+        const next = { data: JSON.parse(text), rev: doc.rev + 1, at: Date.now() };
+        await this.storage.put("app:" + app, next);
+        return json({ rev: next.rev, at: next.at });
+      }
+      const okId = (id) => /^[\w-]{1,40}$/.test(String(id));
+      if (b.action === "filePut") {
+        const value = String(b.value || "");
+        const id = String(b.id ?? "");
+        if (!okId(id) || !/^data:image\/[\w+.-]+;base64,[A-Za-z0-9+/=]+$/.test(value)) return json({ error: "That picture can't be saved." }, 400);
+        if (value.length > 600_000) return json({ error: "That picture is too big to save online." }, 400);
+        const idx = await fileIds();
+        if (!idx.includes(id)) {
+          if (idx.length >= 3000) return json({ error: "Your account is full of pictures. Remove some first." }, 400);
+          idx.push(id);
+        }
+        await this.storage.put({ [fileKey(id)]: value, [idxKey]: idx });
+        return json({ ok: true });
+      }
+      const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(okId).slice(0, 100);
+      if (b.action === "fileGet") {
+        const got = await this.storage.get(ids.map(fileKey));
+        return json({ files: Object.fromEntries(ids.filter((id) => got.has(fileKey(id))).map((id) => [id, got.get(fileKey(id))])) });
+      }
+      if (b.action === "fileDel") {
+        if (ids.length) {
+          await this.storage.delete(ids.map(fileKey));
+          await this.storage.put(idxKey, (await fileIds()).filter((id) => !ids.includes(id)));
+        }
+        return json({ ok: true });
+      }
+    }
+
     if (b.action === "logout") {
       acct.tokens = acct.tokens.filter((t) => !sameText(t.h, th));
       await this.storage.put("acct", acct);

@@ -11,6 +11,21 @@ const SHEET_TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1id9tjF6A5Ua9
 let cfg = { ...DEFAULTS, ...store.get("ss_settings", {}) };
 if (!Array.isArray(cfg.teams) || cfg.teams.length < 10) cfg.teams = themeTeams(cfg.theme);
 let questions = store.get("ss_lastQuestions", []);
+// A question set sent from the vocabulary site's Host a game page (#qs=<base64 JSON>,
+// Donny 2026-10-30): it fills the question box, ready to play or save here.
+let sentSetName = "";
+try {
+  const sent = (location.hash.match(/[#&]qs=([\w-]+)/) || [])[1];
+  if (sent) {
+    const data = JSON.parse(decodeURIComponent(escape(atob(sent.replace(/-/g, "+").replace(/_/g, "/")))));
+    if (Array.isArray(data.questions) && data.questions.length) {
+      questions = data.questions;
+      store.set("ss_lastQuestions", questions);
+      sentSetName = String(data.name || "").slice(0, 120);
+    }
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+} catch {}
 let RULES = null, conn = null, S = null, session = store.get("ss_host", null), editing = false;
 let sortKey = "points", lastHp = {};
 
@@ -126,6 +141,7 @@ function initSetup() {
   $("#createBtn").onclick = createOrSave;
   $("#cancelEdit").onclick = () => { editing = false; render(); };
   $("#qtext").value = questionsToText(questions);
+  if (sentSetName) { $("#setName").value = sentSetName; setTimeout(() => toast(`Loaded “${sentSetName}” from your vocabulary site`, "good"), 300); }
   paintSets(); paintSetup(); paintQuestions();
 }
 async function importSheet() {
